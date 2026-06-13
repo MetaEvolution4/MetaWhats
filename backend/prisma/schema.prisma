@@ -24,7 +24,6 @@ model User {
   updated_at           DateTime  @updatedAt
 
   // Relations
-  otp_codes         OtpCode[]
   owned_contacts    Contact[] @relation("OwnerContacts")
   contacts_of       Contact[] @relation("ContactedUser")
   conversations     Conversation[] @relation("ConversationCreator")
@@ -45,8 +44,6 @@ model OtpCode {
   expires_at DateTime
   used_at    DateTime?
   created_at DateTime @default(now())
-
-  user       User?    @relation(fields: [phone], references: [phone])
 
   @@map("otp_codes")
 }

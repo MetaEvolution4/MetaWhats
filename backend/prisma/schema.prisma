@@ -1,0 +1,186 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                   String    @id @default(uuid())
+  phone                String    @unique
+  name                 String?
+  avatar_url           String?
+  status_message       String?
+  public_key           String?   // Added for E2EE (Base64 X25519 public key)
+  passwordless_enabled Boolean   @default(true)
+  last_seen_at         DateTime?
+  is_online            Boolean   @default(false)
+  created_at           DateTime  @default(now())
+  updated_at           DateTime  @updatedAt
+
+  // Relations
+  otp_codes         OtpCode[]
+  owned_contacts    Contact[] @relation("OwnerContacts")
+  contacts_of       Contact[] @relation("ContactedUser")
+  conversations     Conversation[] @relation("ConversationCreator")
+  participants      ConversationParticipant[]
+  sent_messages     Message[]
+  message_statuses  MessageStatus[]
+  media_files       MediaFile[]
+  reactions         MessageReaction[]
+  push_tokens       PushToken[]
+
+  @@map("users")
+}
+
+model OtpCode {
+  id         String   @id @default(uuid())
+  phone      String
+  code       String
+  expires_at DateTime
+  used_at    DateTime?
+  created_at DateTime @default(now())
+
+  user       User?    @relation(fields: [phone], references: [phone])
+
+  @@map("otp_codes")
+}
+
+model Contact {
+  id              String    @id @default(uuid())
+  owner_user_id   String
+  contact_user_id String
+  nickname        String?
+  blocked_at      DateTime?
+  created_at      DateTime  @default(now())
+
+  owner   User @relation("OwnerContacts", fields: [owner_user_id], references: [id], onDelete: Cascade)
+  contact User @relation("ContactedUser", fields: [contact_user_id], references: [id], onDelete: Cascade)
+
+  @@unique([owner_user_id, contact_user_id])
+  @@map("contacts")
+}
+
+model Conversation {
+  id         String   @id @default(uuid())
+  type       String   // "direct" or "group"
+  title      String?
+  avatar_url String?
+  created_by String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  creator      User?                     @relation("ConversationCreator", fields: [created_by], references: [id], onDelete: SetNull)
+  participants ConversationParticipant[]
+  messages     Message[]
+
+  @@map("conversations")
+}
+
+model ConversationParticipant {
+  id              String    @id @default(uuid())
+  conversation_id String
+  user_id         String
+  role            String    @default("member") // "member", "admin", "owner"
+  muted_until     DateTime?
+  archived_at     DateTime?
+  pinned_at       DateTime?
+  joined_at       DateTime  @default(now())
+  left_at         DateTime?
+
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([conversation_id, user_id])
+  @@map("conversation_participants")
+}
+
+model Message {
+  id                      String    @id @default(uuid())
+  conversation_id         String
+  sender_id               String?
+  type                    String    @default("text") // "text", "image", "audio", "video", "document", "system"
+  content                 String?   // Now stores encrypted ciphertext (Base64)
+  nonce                   String?   // AES-GCM nonce/IV
+  media_id                String?
+  reply_to_message_id     String?
+  edited_at               DateTime?
+  deleted_for_everyone_at DateTime?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+
+  conversation Conversation   @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  sender       User?          @relation(fields: [sender_id], references: [id], onDelete: SetNull)
+  media        MediaFile?     @relation(fields: [media_id], references: [id], onDelete: SetNull)
+  
+  reply_to     Message?       @relation("MessageReplies", fields: [reply_to_message_id], references: [id], onDelete: SetNull)
+  replies      Message[]      @relation("MessageReplies")
+  
+  statuses     MessageStatus[]
+  reactions    MessageReaction[]
+
+  @@map("messages")
+}
+
+model MessageStatus {
+  id         String   @id @default(uuid())
+  message_id String
+  user_id    String
+  status     String   // "sent", "delivered", "read"
+  status_at  DateTime @default(now())
+
+  message Message @relation(fields: [message_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([message_id, user_id, status])
+  @@map("message_status")
+}
+
+model MediaFile {
+  id               String   @id @default(uuid())
+  owner_user_id    String?
+  original_name    String
+  mime_type        String
+  size_bytes       Int
+  storage_path     String
+  public_url       String?
+  duration_seconds Int?
+  created_at       DateTime @default(now())
+
+  owner    User?     @relation(fields: [owner_user_id], references: [id], onDelete: SetNull)
+  messages Message[]
+
+  @@map("media_files")
+}
+
+model MessageReaction {
+  id         String   @id @default(uuid())
+  message_id String
+  user_id    String
+  emoji      String
+  created_at DateTime @default(now())
+
+  message Message @relation(fields: [message_id], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([message_id, user_id, emoji])
+  @@map("message_reactions")
+}
+
+model PushToken {
+  id         String    @id @default(uuid())
+  user_id    String
+  platform   String    // "android", "ios", "web"
+  token      String    @unique
+  created_at DateTime  @default(now())
+  revoked_at DateTime?
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("push_tokens")
+}

@@ -1,0 +1,13 @@
+import { Module } from '@nestjs/common';
+import { EventsGateway } from './events.gateway';
+import { JwtModule } from '@nestjs/jwt';
+
+@Module({
+  imports: [
+    JwtModule.register({
+      secret: process.env.JWT_SECRET || 'super_secret_jwt_key_12345',
+    }),
+  ],
+  providers: [EventsGateway],
+})
+export class EventsModule {}

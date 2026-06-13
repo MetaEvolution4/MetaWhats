@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'core/providers.dart';
 import 'presentation/router.dart';
 import 'core/theme.dart';
 

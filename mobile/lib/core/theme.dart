@@ -1,27 +1,21 @@
 import 'package:flutter/material.dart';
 
 final lightTheme = ThemeData(
-  useMaterial3: true,
+  primaryColor: const Color(0xFF00E676),
+  scaffoldBackgroundColor: const Color(0xFFFFFFFF),
   colorScheme: ColorScheme.fromSeed(
-    seedColor: const Color(0xFF00BFA5), // Tealish, similar but distinct
+    seedColor: const Color(0xFF00E676),
     brightness: Brightness.light,
   ),
-  appBarTheme: const AppBarTheme(
-    centerTitle: false,
-    elevation: 0,
-  ),
+  useMaterial3: true,
 );
 
 final darkTheme = ThemeData(
-  useMaterial3: true,
+  primaryColor: const Color(0xFF00E676),
+  scaffoldBackgroundColor: const Color(0xFF121212),
   colorScheme: ColorScheme.fromSeed(
-    seedColor: const Color(0xFF00BFA5),
+    seedColor: const Color(0xFF00E676),
     brightness: Brightness.dark,
-    surface: const Color(0xFF121B22),
-    background: const Color(0xFF0B141A),
   ),
-  appBarTheme: const AppBarTheme(
-    centerTitle: false,
-    elevation: 0,
-  ),
+  useMaterial3: true,
 );

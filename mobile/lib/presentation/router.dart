@@ -6,6 +6,8 @@ import 'screens/splash_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/verify_otp_screen.dart';
 import 'screens/home_screen.dart';
+import 'screens/contacts_screen.dart';
+import 'screens/chat_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -29,6 +31,20 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/home',
         builder: (context, state) => const HomeScreen(),
+      ),
+      GoRoute(
+        path: '/contacts',
+        builder: (context, state) => const ContactsScreen(),
+      ),
+      GoRoute(
+        path: '/chat',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          return ChatScreen(
+            contact: extra['contact'],
+            conversation: extra['conversation'],
+          );
+        },
       ),
     ],
   );

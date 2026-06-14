@@ -20,7 +20,7 @@ class AuthRepositoryImpl implements AuthRepository {
       'code': code,
     });
     
-    final token = response.data['access_token'];
+    final token = response.data['accessToken'];
     
     // Salva o token localmente
     final prefs = await SharedPreferences.getInstance();

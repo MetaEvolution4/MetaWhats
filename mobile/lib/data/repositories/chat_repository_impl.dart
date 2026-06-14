@@ -23,13 +23,21 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
+  Future<Conversation> createDirectConversation(String userId) async {
+    final response = await api.dio.post('/conversations/direct', data: {
+      'userId': userId,
+    });
+    return Conversation.fromJson(response.data);
+  }
+
+  @override
   Future<List<Message>> getMessages(String conversationId) async {
     // Tenta buscar as mensagens do banco local primeiro para ser instantâneo
     List<Message> localMessages = await localDb.getMessages(conversationId);
     
     // Opcional: Buscar novas mensagens na API para sincronização
     try {
-      final response = await api.dio.get('/messages/$conversationId');
+      final response = await api.dio.get('/conversations/$conversationId/messages');
       final List data = response.data;
       List<Message> remoteMessages = data.map((json) => Message.fromJson(json)).toList();
       
@@ -64,6 +72,7 @@ class ChatRepositoryImpl implements ChatRepository {
     final messagePayload = {
       'conversationId': conversationId,
       'content': finalContent,
+      'type': 'text',
       'nonce': finalNonce,
     };
 
@@ -73,7 +82,7 @@ class ChatRepositoryImpl implements ChatRepository {
     // Opcionalmente podemos criar uma mensagem fake com status 'sending' 
     // enquanto o servidor não confirma, mas para o MVP, vamos aguardar a confirmação do servidor.
     // Como a API REST pode ser usada como fallback:
-    final response = await api.dio.post('/messages', data: messagePayload);
+    final response = await api.dio.post('/conversations/$conversationId/messages', data: messagePayload);
     final sentMessage = Message.fromJson(response.data);
     
     // Salva localmente a mensagem DECIFRADA para o remetente não perder o histórico

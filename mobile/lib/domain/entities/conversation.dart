@@ -23,21 +23,29 @@ class Conversation {
   factory Conversation.fromJson(Map<String, dynamic> json) {
     // Trata a estrutura aninhada que o Prisma retorna (conversation.participants[].user)
     var participantsList = json['participants'] as List? ?? [];
-    List<User> participants = participantsList.map((p) {
-      if (p.containsKey('user')) {
-        return User.fromJson(p['user']);
+    List<User> participants = [];
+    for (var p in participantsList) {
+      try {
+        if (p is Map<String, dynamic>) {
+          if (p.containsKey('user') && p['user'] != null) {
+            participants.add(User.fromJson(p['user']));
+          } else if (p.containsKey('phone') && p['phone'] != null) {
+            participants.add(User.fromJson(p));
+          }
+        }
+      } catch (e) {
+        // Ignora participantes incompletos que o backend pode retornar no createDirect
       }
-      return User.fromJson(p);
-    }).toList();
+    }
 
     return Conversation(
       id: json['id'] ?? '',
       isGroup: json['isGroup'] ?? false,
       groupName: json['groupName'],
       participants: participants,
-      lastMessage: json['lastMessage'] != null 
-          ? Message.fromJson(json['lastMessage']) 
-          : null,
+      lastMessage: (json['messages'] != null && json['messages'].isNotEmpty)
+          ? Message.fromJson(json['messages'][0])
+          : (json['lastMessage'] != null ? Message.fromJson(json['lastMessage']) : null),
       unreadCount: json['unreadCount'] ?? 0,
       updatedAt: json['updatedAt'] != null 
           ? DateTime.parse(json['updatedAt']) 

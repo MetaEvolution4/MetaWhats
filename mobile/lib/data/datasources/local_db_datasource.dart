@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
+import 'package:flutter/foundation.dart';
 import '../../domain/entities/message.dart';
 
 class LocalDbDatasource {
@@ -9,7 +10,8 @@ class LocalDbDatasource {
 
   Database? _database;
 
-  Future<Database> get database async {
+  Future<Database?> get database async {
+    if (kIsWeb) return null;
     if (_database != null) return _database!;
     _database = await _initDb();
     return _database!;
@@ -42,11 +44,13 @@ class LocalDbDatasource {
 
   Future<void> insertMessage(Message message) async {
     final db = await database;
+    if (db == null) return;
     await db.insert('messages', message.toJson(), conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<List<Message>> getMessages(String conversationId) async {
     final db = await database;
+    if (db == null) return [];
     final maps = await db.query(
       'messages',
       where: 'conversationId = ?',

@@ -25,7 +25,8 @@ class WebSocketDatasource {
       print('✅ Socket.IO connected!');
     });
 
-    socket!.on('message', (data) {
+    socket!.on('message:new', (data) {
+      print('💌 NEW MESSAGE RECEIVED VIA SOCKET: $data');
       _messageController.add(Map<String, dynamic>.from(data));
     });
 

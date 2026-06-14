@@ -35,6 +35,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       const payload = this.jwtService.verify(token as string, { secret: process.env.JWT_SECRET || 'super_secret_jwt_key_12345' });
       client.data.user = payload;
       
+      // Join a personal room for this user to receive direct updates
+      client.join(`user_${payload.sub}`);
+      
       // Update presence
       await this.redisClient.set(`presence:${payload.sub}`, client.id);
       

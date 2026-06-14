@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SendMessageDto, UpdateMessageDto, ReactMessageDto } from './dto/message.dto';
+import { EventsGateway } from '../events/events.gateway';
 
 @Injectable()
 export class MessagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventsGateway: EventsGateway,
+  ) {}
 
   async checkParticipant(userId: string, conversationId: string) {
     const participant = await this.prisma.conversationParticipant.findUnique({
@@ -43,14 +47,23 @@ export class MessagesService {
         media_id: dto.media_id,
         reply_to_message_id: dto.reply_to_message_id,
       },
-      include: { media: true, reactions: true }
+      include: { media: true, reactions: true, sender: { select: { id: true, name: true, phone: true } } }
     });
 
     // Update conversation updated_at
-    await this.prisma.conversation.update({
+    const conversation = await this.prisma.conversation.update({
       where: { id: conversationId },
-      data: { updated_at: new Date() }
+      data: { updated_at: new Date() },
+      include: { participants: true }
     });
+
+    // Broadcast to conversation room (for active chat screens)
+    this.eventsGateway.server.to(`conversation_${conversationId}`).emit('message:new', message);
+
+    // Broadcast to all participants' personal rooms (for Home screens and notifications)
+    for (const participant of conversation.participants) {
+      this.eventsGateway.server.to(`user_${participant.user_id}`).emit('message:new', message);
+    }
 
     return message;
   }

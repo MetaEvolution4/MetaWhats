@@ -1,7 +1,7 @@
 import { Controller, Post, Body, Get, Param, UseGuards, Request } from '@nestjs/common';
 import { DevicesService } from './devices.service';
 import { RegisterDeviceDto } from './dto/device.dto';
-import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 
 @ApiTags('devices')
@@ -12,7 +12,7 @@ export class DevicesController {
   constructor(private readonly devicesService: DevicesService) {}
 
   @Post('register')
-  async registerDevice(@Request() req, @Body() dto: RegisterDeviceDto) {
+  async registerDevice(@Body() dto: RegisterDeviceDto, @Request() req: any) {
     return this.devicesService.registerDevice(req.user.userId, dto);
   }
 

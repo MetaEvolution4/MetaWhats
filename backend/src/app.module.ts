@@ -10,6 +10,7 @@ import { MessagesModule } from './messages/messages.module';
 import { MediaModule } from './media/media.module';
 import { DevicesModule } from './devices/devices.module';
 import { PushModule } from './push/push.module';
+import { EventsModule } from './events/events.module';
 
 @Module({
   imports: [PrismaModule, AuthModule, UsersModule, ContactsModule, ConversationsModule, MessagesModule, MediaModule, EventsModule, DevicesModule, PushModule],

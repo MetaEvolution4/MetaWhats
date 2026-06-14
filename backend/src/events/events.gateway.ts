@@ -98,7 +98,8 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           conversation_id: data.conversationId,
           sender_id: user.sub,
           type: data.type || 'text',
-          content: data.content,
+          ciphertext: data.ciphertext || '',
+          cipher_type: data.cipher_type || 3,
           nonce: data.nonce,
         },
         include: { sender: { select: { id: true, name: true, phone: true } } }

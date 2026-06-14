@@ -17,7 +17,13 @@ export class UsersService {
   async getPublicKey(id: string) {
     const user = await this.prisma.user.findUnique({
       where: { id },
-      select: { public_key: true }
+      select: {
+        id: true,
+        phone: true,
+        name: true,
+        is_online: true,
+        last_seen_at: true,
+      }
     });
     if (!user) throw new NotFoundException('User not found');
     return user;

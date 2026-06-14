@@ -2,10 +2,14 @@ import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class SendMessageDto {
-  @ApiPropertyOptional({ example: 'Hello there!' })
+  @ApiPropertyOptional({ example: 'base64-encoded-ciphertext' })
   @IsOptional()
   @IsString()
-  content?: string;
+  ciphertext?: string;
+
+  @ApiPropertyOptional({ example: 3 })
+  @IsOptional()
+  cipher_type?: number;
 
   @ApiProperty({ example: 'text', enum: ['text', 'image', 'audio', 'video', 'document', 'system'] })
   @IsNotEmpty()
@@ -29,10 +33,10 @@ export class SendMessageDto {
 }
 
 export class UpdateMessageDto {
-  @ApiProperty({ example: 'Edited hello there!' })
+  @ApiProperty({ example: 'Edited base64-encoded-ciphertext' })
   @IsNotEmpty()
   @IsString()
-  content: string;
+  ciphertext: string;
 }
 
 export class ReactMessageDto {

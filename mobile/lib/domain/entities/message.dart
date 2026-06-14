@@ -4,8 +4,10 @@ class Message {
   final String id;
   final String conversationId;
   final String senderId;
-  final String content; // Pode estar cifrado ou decifrado dependendo do momento
-  final String? nonce;  // Vetor de inicialização essencial para decriptar AES-GCM
+  final String content; // Plaintext (after decryption)
+  final String? ciphertext; // Raw ciphertext from backend
+  final int? cipherType;
+  final String? nonce;
   final MessageStatus status;
   final DateTime createdAt;
 
@@ -14,6 +16,8 @@ class Message {
     required this.conversationId,
     required this.senderId,
     required this.content,
+    this.ciphertext,
+    this.cipherType,
     this.nonce,
     this.status = MessageStatus.sent,
     required this.createdAt,
@@ -25,6 +29,8 @@ class Message {
       conversationId: json['conversationId'] ?? json['conversation_id'] ?? '',
       senderId: json['senderId'] ?? json['sender_id'] ?? '',
       content: json['content'] ?? '',
+      ciphertext: json['ciphertext'],
+      cipherType: json['cipherType'] ?? json['cipher_type'],
       nonce: json['nonce'],
       status: _parseStatus(json),
       createdAt: (json['createdAt'] != null || json['created_at'] != null)
@@ -39,6 +45,8 @@ class Message {
       'conversationId': conversationId,
       'senderId': senderId,
       'content': content,
+      'ciphertext': ciphertext,
+      'cipherType': cipherType,
       'nonce': nonce,
       'status': status.toString().split('.').last,
       'createdAt': createdAt.toIso8601String(),

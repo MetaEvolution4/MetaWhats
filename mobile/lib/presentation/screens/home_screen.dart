@@ -57,6 +57,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           _isLoading = false;
         });
       }
+
+      // NOVO: Garantir que o polling também marque como entregue!
+      for (var conv in convs) {
+        if (conv.lastMessage != null) {
+          final msg = conv.lastMessage!;
+          // Se a mensagem não é minha e o status está apenas como "sent", avisa que entregou!
+          if (msg.senderId != me?.id && msg.status == MessageStatus.sent) {
+            chatRepo.markAsDelivered(msg.id);
+          }
+        }
+      }
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);

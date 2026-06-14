@@ -2,12 +2,14 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { PrismaService } from '../prisma/prisma.service';
 import { SendMessageDto, UpdateMessageDto, ReactMessageDto } from './dto/message.dto';
 import { EventsGateway } from '../events/events.gateway';
+import { PushService } from '../push/push.service';
 
 @Injectable()
 export class MessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventsGateway: EventsGateway,
+    private readonly pushService: PushService,
   ) {}
 
   async checkParticipant(userId: string, conversationId: string) {
@@ -42,7 +44,8 @@ export class MessagesService {
         conversation_id: conversationId,
         sender_id: userId,
         type: dto.type,
-        content: dto.content,
+        ciphertext: dto.ciphertext,
+        cipher_type: dto.cipher_type,
         nonce: dto.nonce,
         media_id: dto.media_id,
         reply_to_message_id: dto.reply_to_message_id,
@@ -61,8 +64,21 @@ export class MessagesService {
     this.eventsGateway.server.to(`conversation_${conversationId}`).emit('message:new', message);
 
     // Broadcast to all participants' personal rooms (for Home screens and notifications)
+    const fcmTokens = [];
     for (const participant of conversation.participants) {
       this.eventsGateway.server.to(`user_${participant.user_id}`).emit('message:new', message);
+
+      if (participant.user_id !== userId) {
+        // Collect FCM tokens for offline/background users
+        const devices = await this.prisma.device.findMany({ where: { user_id: participant.user_id } });
+        for (const device of devices) {
+          if (device.fcm_token) fcmTokens.push(device.fcm_token);
+        }
+      }
+    }
+
+    if (fcmTokens.length > 0) {
+      await this.pushService.sendPushToDevices(fcmTokens, conversationId);
     }
 
     return message;
@@ -80,7 +96,7 @@ export class MessagesService {
 
     return this.prisma.message.update({
       where: { id: messageId },
-      data: { content: dto.content, edited_at: new Date() }
+      data: { ciphertext: dto.ciphertext, edited_at: new Date() }
     });
   }
 
@@ -90,7 +106,7 @@ export class MessagesService {
 
     return this.prisma.message.update({
       where: { id: messageId },
-      data: { deleted_for_everyone_at: new Date(), content: null, media_id: null }
+      data: { deleted_for_everyone_at: new Date(), ciphertext: null, media_id: null }
     });
   }
 

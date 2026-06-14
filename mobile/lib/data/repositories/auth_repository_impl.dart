@@ -2,6 +2,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../datasources/api_datasource.dart';
+import '../../core/encryption/signal_manager.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
   final ApiDatasource api;
@@ -25,6 +27,27 @@ class AuthRepositoryImpl implements AuthRepository {
     // Salva o token localmente
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('jwt_token', token);
+
+    // After setting the token, we can make authenticated requests to register device
+    api.dio.options.headers['Authorization'] = 'Bearer $token';
+
+    // Get FCM Token
+    String? fcmToken;
+    try {
+      fcmToken = await FirebaseMessaging.instance.getToken();
+    } catch (e) {
+      print('FCM Token error: $e');
+    }
+
+    // Generate/Load Signal Protocol keys and bundle
+    final signalManager = SignalManager();
+    final bundle = await signalManager.getBundleForServer();
+
+    bundle['fcm_token'] = fcmToken;
+    bundle['platform'] = 'mobile';
+
+    // Register device and bundle on the backend
+    await api.dio.post('/devices/register', data: bundle);
     
     return token;
   }

@@ -11,9 +11,9 @@ class ChatRepositoryImpl implements ChatRepository {
   final ApiDatasource api;
   final WebSocketDatasource socket;
   final LocalDbDatasource localDb;
-  final EncryptionService encryption;
+  final SignalManager signalManager = SignalManager();
 
-  ChatRepositoryImpl(this.api, this.socket, this.localDb, this.encryption);
+  ChatRepositoryImpl(this.api, this.socket, this.localDb);
 
   @override
   Future<List<Conversation>> getConversations() async {
@@ -41,10 +41,19 @@ class ChatRepositoryImpl implements ChatRepository {
       remoteMessages = data.map((json) => Message.fromJson(json)).toList();
       
       for (var msg in remoteMessages) {
+        if (msg.ciphertext != null && msg.ciphertext!.isNotEmpty && msg.content.isEmpty) {
+          try {
+            final plainText = await signalManager.decryptMessage(msg.senderId, msg.ciphertext!, msg.cipherType ?? 3);
+            msg = msg.copyWith(content: plainText);
+          } catch (e) {
+            print('Error decrypting message on sync: $e');
+            msg = msg.copyWith(content: '🔒 Mensagem Criptografada');
+          }
+        }
         await localDb.insertMessage(msg);
       }
       
-      // Se não temos banco local (ex: web), retornamos os remotos
+      // Se não temos banco local (ex: web), retornamos os remotos decifrados
       if (localMessages.isEmpty && remoteMessages.isNotEmpty) {
         return remoteMessages;
       }
@@ -59,24 +68,36 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
-  Future<Message> sendMessage(String conversationId, String content, [String? recipientPublicKey]) async {
-    String finalContent = content;
-    String? finalNonce;
+  Future<Message> sendMessage(String conversationId, String content, [String? recipientUserId]) async {
+    String? finalCiphertext;
+    int cipherType = 3;
 
-    // Se temos a chave pública do destinatário, criptografamos com AES-GCM
-    if (recipientPublicKey != null) {
-      final sharedSecret = await encryption.deriveSharedSecret(recipientPublicKey);
-      final encryptedData = await encryption.encryptMessage(content, sharedSecret);
-      finalContent = encryptedData.cipherText;
-      finalNonce = encryptedData.nonce;
+    if (recipientUserId != null) {
+      try {
+        finalCiphertext = await signalManager.encryptMessage(recipientUserId, content);
+        // Em um app real, o PreKeyWhisperMessage usaria tipo 1 e trocaria para 3 depois. Usamos 3 para WhisperMessage.
+      } catch (e) {
+        print('Erro de E2EE: $e. Tentaremos pegar a chave do servidor primeiro se a sessão não existir');
+        try {
+          // Fallback: Busca prekey do servidor e tenta processar a bundle
+          final bundleRes = await api.dio.get('/devices/bundle/$recipientUserId');
+          if (bundleRes.data != null) {
+            await signalManager.processPreKeyBundle(recipientUserId, bundleRes.data);
+            finalCiphertext = await signalManager.encryptMessage(recipientUserId, content);
+            cipherType = 1; // 1 = PreKeyWhisperMessage (Signal protocol initialization)
+          }
+        } catch (innerE) {
+          print('Falha final no E2EE: $innerE');
+        }
+      }
     }
 
     // Criamos a mensagem a ser enviada
     final messagePayload = {
       'conversationId': conversationId,
-      'content': finalContent,
+      'ciphertext': finalCiphertext,
+      'cipher_type': cipherType,
       'type': 'text',
-      'nonce': finalNonce,
     };
 
     // Envia via Socket.IO
@@ -115,8 +136,18 @@ class ChatRepositoryImpl implements ChatRepository {
 
   @override
   Stream<Message> get onMessageReceived {
-    return socket.onMessage.map((data) {
-      return Message.fromJson(data);
+    return socket.onMessage.asyncMap((data) async {
+      var msg = Message.fromJson(data);
+      if (msg.ciphertext != null && msg.ciphertext!.isNotEmpty && msg.content.isEmpty) {
+        try {
+          final plainText = await signalManager.decryptMessage(msg.senderId, msg.ciphertext!, msg.cipherType ?? 3);
+          msg = msg.copyWith(content: plainText);
+        } catch (e) {
+          print('Socket E2EE decryption failed: $e');
+          msg = msg.copyWith(content: '🔒 Mensagem Criptografada');
+        }
+      }
+      return msg;
     });
   }
 

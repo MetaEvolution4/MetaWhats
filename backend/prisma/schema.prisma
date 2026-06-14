@@ -16,7 +16,6 @@ model User {
   name                 String?
   avatar_url           String?
   status_message       String?
-  public_key           String?   // Added for E2EE (Base64 X25519 public key)
   passwordless_enabled Boolean   @default(true)
   last_seen_at         DateTime?
   is_online            Boolean   @default(false)
@@ -32,7 +31,7 @@ model User {
   message_statuses  MessageStatus[]
   media_files       MediaFile[]
   reactions         MessageReaction[]
-  push_tokens       PushToken[]
+  devices           Device[]
 
   @@map("users")
 }
@@ -102,7 +101,8 @@ model Message {
   conversation_id         String
   sender_id               String?
   type                    String    @default("text") // "text", "image", "audio", "video", "document", "system"
-  content                 String?   // Now stores encrypted ciphertext (Base64)
+  ciphertext              String?   // Encrypted Signal Protocol message
+  cipher_type             Int       @default(3) // 3 for WhisperMessage, 1 for PreKeyWhisperMessage
   nonce                   String?   // AES-GCM nonce/IV
   media_id                String?
   reply_to_message_id     String?
@@ -169,15 +169,33 @@ model MessageReaction {
   @@map("message_reactions")
 }
 
-model PushToken {
-  id         String    @id @default(uuid())
-  user_id    String
-  platform   String    // "android", "ios", "web"
-  token      String    @unique
-  created_at DateTime  @default(now())
-  revoked_at DateTime?
+model Device {
+  id               String   @id @default(uuid())
+  user_id          String
+  fcm_token        String?  @unique
+  platform         String?  // android, ios, web
+  registration_id  Int      // Signal Protocol registration id
+  identity_key     String   // Public Identity Key (Base64)
+  signed_pre_key   String   // Signed PreKey (Base64)
+  signed_signature String   // Signature of Signed PreKey
+  signed_key_id    Int      // ID of the Signed PreKey
+  last_seen_at     DateTime @default(now())
+  created_at       DateTime @default(now())
 
-  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  user     User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  pre_keys PreKey[]
 
-  @@map("push_tokens")
+  @@map("devices")
+}
+
+model PreKey {
+  id         String @id @default(uuid())
+  device_id  String
+  key_id     Int
+  public_key String // Public PreKey (Base64)
+
+  device Device @relation(fields: [device_id], references: [id], onDelete: Cascade)
+
+  @@unique([device_id, key_id])
+  @@map("pre_keys")
 }

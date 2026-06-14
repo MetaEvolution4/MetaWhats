@@ -8,10 +8,11 @@ import { ContactsModule } from './contacts/contacts.module';
 import { ConversationsModule } from './conversations/conversations.module';
 import { MessagesModule } from './messages/messages.module';
 import { MediaModule } from './media/media.module';
-import { EventsModule } from './events/events.module';
+import { DevicesModule } from './devices/devices.module';
+import { PushModule } from './push/push.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, UsersModule, ContactsModule, ConversationsModule, MessagesModule, MediaModule, EventsModule],
+  imports: [PrismaModule, AuthModule, UsersModule, ContactsModule, ConversationsModule, MessagesModule, MediaModule, EventsModule, DevicesModule, PushModule],
   controllers: [AppController],
   providers: [AppService],
 })

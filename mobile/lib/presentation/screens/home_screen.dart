@@ -81,6 +81,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         }
       }
     }
+  } // Fechamento de _loadData
+
   StreamSubscription<Message>? _messageSub;
   StreamSubscription<Map<String, dynamic>>? _callSub;
 

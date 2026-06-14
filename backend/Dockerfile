@@ -1,7 +1,7 @@
 FROM node:18-alpine
 
 # Install openssl for Prisma
-RUN apk add --no-cache openssl
+RUN apk add --no-cache openssl python3 make g++
 
 WORKDIR /app
 

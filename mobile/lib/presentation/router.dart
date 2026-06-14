@@ -8,6 +8,7 @@ import 'screens/verify_otp_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/contacts_screen.dart';
 import 'screens/chat_screen.dart';
+import 'screens/create_group_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -46,6 +47,9 @@ final routerProvider = Provider<GoRouter>((ref) {
             currentUser: extra['currentUser'],
           );
         },
+      GoRoute(
+        path: '/create-group',
+        builder: (context, state) => const CreateGroupScreen(),
       ),
     ],
   );

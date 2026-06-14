@@ -24,4 +24,18 @@ class ApiDatasource {
       },
     ));
   }
+
+  Future<String> uploadMedia(List<int> bytes, String filename) async {
+    final formData = FormData.fromMap({
+      'file': MultipartFile.fromBytes(bytes, filename: filename),
+    });
+
+    final response = await dio.post('/media/upload', data: formData);
+    return response.data['id']; // Assumes the backend returns { id: "media_id" }
+  }
+
+  Future<List<int>> downloadMedia(String id) async {
+    final response = await dio.get('/media/download/$id', options: Options(responseType: ResponseType.bytes));
+    return response.data;
+  }
 }

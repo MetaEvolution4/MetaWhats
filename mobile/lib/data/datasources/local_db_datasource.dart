@@ -23,23 +23,61 @@ class LocalDbDatasource {
 
     return await openDatabase(
       path,
-      version: 1,
-      onCreate: _onCreate,
+      version: 2,
+      onCreate: (db, version) async {
+        await db.execute('''
+          CREATE TABLE messages(
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT,
+            sender_id TEXT,
+            type TEXT,
+            content TEXT,
+            ciphertext TEXT,
+            cipher_type INTEGER,
+            media_id TEXT,
+            status TEXT,
+            created_at TEXT
+          )
+        ''');
+        await db.execute('''
+          CREATE TABLE group_keys(
+            group_id TEXT PRIMARY KEY,
+            key_base64 TEXT
+          )
+        ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('''
+            CREATE TABLE group_keys(
+              group_id TEXT PRIMARY KEY,
+              key_base64 TEXT
+            )
+          ''');
+        }
+      },
     );
   }
 
-  Future<void> _onCreate(Database db, int version) async {
-    await db.execute('''
-      CREATE TABLE messages(
-        id TEXT PRIMARY KEY,
-        conversationId TEXT,
-        senderId TEXT,
-        content TEXT,
-        nonce TEXT,
-        status TEXT,
-        createdAt TEXT
-      )
-    ''');
+  Future<void> saveGroupKey(String groupId, String keyBase64) async {
+    final db = await database;
+    await db.insert('group_keys', {
+      'group_id': groupId,
+      'key_base64': keyBase64,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<String?> getGroupKey(String groupId) async {
+    final db = await database;
+    final List<Map<String, dynamic>> maps = await db.query(
+      'group_keys',
+      where: 'group_id = ?',
+      whereArgs: [groupId],
+    );
+    if (maps.isNotEmpty) {
+      return maps.first['key_base64'] as String;
+    }
+    return null;
   }
 
   Future<void> insertMessage(Message message) async {

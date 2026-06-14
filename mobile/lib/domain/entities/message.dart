@@ -7,6 +7,7 @@ class Message {
   final String content; // Plaintext (after decryption)
   final String? ciphertext; // Raw ciphertext from backend
   final int? cipherType;
+  final String? type;
   final String? nonce;
   final MessageStatus status;
   final DateTime createdAt;
@@ -18,6 +19,7 @@ class Message {
     required this.content,
     this.ciphertext,
     this.cipherType,
+    this.type = 'text',
     this.nonce,
     this.status = MessageStatus.sent,
     required this.createdAt,
@@ -31,6 +33,7 @@ class Message {
       content: json['content'] ?? '',
       ciphertext: json['ciphertext'],
       cipherType: json['cipherType'] ?? json['cipher_type'],
+      type: json['type'] ?? 'text',
       nonce: json['nonce'],
       status: _parseStatus(json),
       createdAt: (json['createdAt'] != null || json['created_at'] != null)
@@ -42,20 +45,22 @@ class Message {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
-      'conversationId': conversationId,
-      'senderId': senderId,
+      'conversation_id': conversationId,
+      'sender_id': senderId,
       'content': content,
       'ciphertext': ciphertext,
-      'cipherType': cipherType,
+      'cipher_type': cipherType,
+      'type': type,
       'nonce': nonce,
       'status': status.toString().split('.').last,
-      'createdAt': createdAt.toIso8601String(),
+      'created_at': createdAt.toIso8601String(),
     };
   }
 
   // Método auxiliar para criar uma cópia da mensagem com conteúdo decifrado
   Message copyWith({
     String? content,
+    String? type,
     MessageStatus? status,
   }) {
     return Message(
@@ -63,6 +68,7 @@ class Message {
       conversationId: this.conversationId,
       senderId: this.senderId,
       content: content ?? this.content,
+      type: type ?? this.type,
       nonce: this.nonce,
       status: status ?? this.status,
       createdAt: this.createdAt,

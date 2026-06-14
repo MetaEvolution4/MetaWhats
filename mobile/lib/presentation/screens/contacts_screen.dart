@@ -314,9 +314,31 @@ class _ContactsScreenState extends ConsumerState<ContactsScreen> {
                 )
               : ListView.builder(
                   padding: const EdgeInsets.all(12),
-                  itemCount: _contacts.length,
+                  itemCount: _contacts.length + 1,
                   itemBuilder: (context, index) {
-                    final contact = _contacts[index];
+                    if (index == 0) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 16.0),
+                        child: ListTile(
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                          tileColor: const Color(0xFF141414),
+                          leading: Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: const Color(0xFF00E676).withOpacity(0.2),
+                            ),
+                            child: const Icon(Icons.group_add, color: Color(0xFF00E676), size: 28),
+                          ),
+                          title: const Text('Novo Grupo', style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold)),
+                          onTap: () {
+                            context.push('/create-group');
+                          },
+                        ),
+                      );
+                    }
+                    final contact = _contacts[index - 1];
                     return Padding(
                       padding: const EdgeInsets.only(bottom: 8.0),
                       child: ListTile(

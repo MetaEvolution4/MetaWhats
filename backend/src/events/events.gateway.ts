@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import { InjectRedis } from '@nestjs-modules/ioredis';
 import { Redis } from 'ioredis';
+import { PushService } from '../push/push.service';
 
 @WebSocketGateway({
   cors: {
@@ -17,7 +18,7 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   constructor(
     private jwtService: JwtService,
     private prisma: PrismaService,
-    // Using simple redis client for presence
+    private pushService: PushService,
   ) {}
 
   // Since we haven't formally setup @nestjs-modules/ioredis module, 
@@ -110,6 +111,27 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
       // Broadcast to others in the conversation room
       client.to(`conversation_${data.conversationId}`).emit('message:new', message);
+
+      // Fetch conversation participants for FCM
+      const conversation = await this.prisma.conversation.findUnique({
+        where: { id: data.conversationId },
+        include: { participants: true }
+      });
+
+      if (conversation) {
+        const fcmTokens = [];
+        for (const participant of conversation.participants) {
+          if (participant.user_id !== user.sub) {
+            const devices = await this.prisma.device.findMany({ where: { user_id: participant.user_id } });
+            for (const device of devices) {
+              if (device.fcm_token) fcmTokens.push(device.fcm_token);
+            }
+          }
+        }
+        if (fcmTokens.length > 0) {
+          await this.pushService.sendPushToDevices(fcmTokens, data.conversationId);
+        }
+      }
 
       return { status: 'ok', messageId: message.id };
     } catch (e) {

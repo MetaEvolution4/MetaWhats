@@ -1,7 +1,13 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:record/record.dart';
+import 'package:audioplayers/audioplayers.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../core/providers.dart';
 import '../../domain/entities/conversation.dart';
 import '../../domain/entities/message.dart';
@@ -31,10 +37,20 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   StreamSubscription<Map<String, dynamic>>? _messageStatusSub;
   Timer? _pollingTimer;
 
+  // Audio Recording
+  final AudioRecorder _audioRecorder = AudioRecorder();
+  bool _isRecording = false;
+  bool _hasText = false;
+
   @override
   void initState() {
     super.initState();
     _currentUser = widget.currentUser;
+    _messageController.addListener(() {
+      setState(() {
+        _hasText = _messageController.text.trim().isNotEmpty;
+      });
+    });
     _initChat();
     
     _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
@@ -228,6 +244,87 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  Future<void> _pickAndSendMedia(ImageSource source) async {
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: source, imageQuality: 70);
+    if (pickedFile == null || _currentConversation == null) return;
+
+    String? recipientUserId;
+    if (!_currentConversation!.isGroup && widget.contact != null) {
+      recipientUserId = widget.contact!.id;
+    }
+
+    try {
+      final chatRepo = ref.read(chatRepositoryProvider);
+      final sentMsg = await chatRepo.sendMediaMessage(
+        _currentConversation!.id,
+        pickedFile.path,
+        'image',
+        recipientUserId,
+      );
+      if (mounted) {
+        setState(() {
+          if (!_messages.any((m) => m.id == sentMsg.id)) {
+            _messages.add(sentMsg);
+          }
+        });
+        _scrollToBottom();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Falha ao enviar mídia: $e')));
+      }
+    }
+  }
+
+  Future<void> _startRecording() async {
+    try {
+      if (await _audioRecorder.hasPermission()) {
+        final dir = await getApplicationDocumentsDirectory();
+        final path = '${dir.path}/audio_${DateTime.now().millisecondsSinceEpoch}.m4a';
+        await _audioRecorder.start(const RecordConfig(encoder: AudioEncoder.aacLc), path: path);
+        setState(() {
+          _isRecording = true;
+        });
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to start recording: $e')));
+    }
+  }
+
+  Future<void> _stopRecording() async {
+    try {
+      final path = await _audioRecorder.stop();
+      setState(() {
+        _isRecording = false;
+      });
+      if (path != null && _currentConversation != null) {
+        String? recipientUserId;
+        if (!_currentConversation!.isGroup && widget.contact != null) {
+          recipientUserId = widget.contact!.id;
+        }
+
+        final chatRepo = ref.read(chatRepositoryProvider);
+        final sentMsg = await chatRepo.sendMediaMessage(
+          _currentConversation!.id,
+          path,
+          'audio',
+          recipientUserId,
+        );
+        if (mounted) {
+          setState(() {
+            if (!_messages.any((m) => m.id == sentMsg.id)) {
+              _messages.add(sentMsg);
+            }
+          });
+          _scrollToBottom();
+        }
+      }
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed to stop recording: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     // Determine display name
@@ -416,13 +513,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(
-              msg.content,
-              style: TextStyle(
-                color: isMe ? Colors.black87 : Colors.white,
-                fontSize: 16,
+            if (msg.type == 'image' && msg.content.startsWith('{'))
+              _MediaMessageBubble(message: msg)
+            else if (msg.type == 'audio' && msg.content.startsWith('{'))
+              _AudioMessageBubble(message: msg, isMe: isMe)
+            else
+              Text(
+                msg.content,
+                style: TextStyle(
+                  color: isMe ? Colors.black87 : Colors.white,
+                  fontSize: 16,
+                ),
               ),
-            ),
             const SizedBox(height: 4),
             Row(
               mainAxisSize: MainAxisSize.min,
@@ -470,50 +572,235 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     onPressed: () {},
                   ),
                   Expanded(
-                    child: TextField(
-                      controller: _messageController,
-                      focusNode: _focusNode,
-                      style: const TextStyle(color: Colors.white),
-                      decoration: const InputDecoration(
-                        hintText: 'Mensagem',
-                        hintStyle: TextStyle(color: Colors.grey),
-                        border: InputBorder.none,
-                      ),
-                      onSubmitted: (_) => _sendMessage(),
+                    child: _isRecording 
+                        ? const Padding(
+                            padding: EdgeInsets.only(left: 16),
+                            child: Text('Gravando áudio...', style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold)),
+                          )
+                        : TextField(
+                            controller: _messageController,
+                            focusNode: _focusNode,
+                            style: const TextStyle(color: Colors.white),
+                            decoration: const InputDecoration(
+                              hintText: 'Mensagem',
+                              hintStyle: TextStyle(color: Colors.grey),
+                              border: InputBorder.none,
+                            ),
+                            onSubmitted: (_) => _sendMessage(),
+                          ),
+                  ),
+                  if (!_isRecording && !_hasText) ...[
+                    IconButton(
+                      icon: const Icon(Icons.attach_file, color: Colors.grey),
+                      onPressed: () => _pickAndSendMedia(ImageSource.gallery),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.attach_file, color: Colors.grey),
-                    onPressed: () {},
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.camera_alt, color: Colors.grey),
-                    onPressed: () {},
-                  ),
+                    IconButton(
+                      icon: const Icon(Icons.camera_alt, color: Colors.grey),
+                      onPressed: () => _pickAndSendMedia(ImageSource.camera),
+                    ),
+                  ],
                 ],
               ),
             ),
           ),
           const SizedBox(width: 8),
-          Container(
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: const Color(0xFF00E676),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF00E676).withOpacity(0.3),
-                  blurRadius: 8,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: IconButton(
-              icon: const Icon(Icons.send, color: Colors.black87),
-              onPressed: _sendMessage,
+          GestureDetector(
+            onLongPressStart: (_) => _startRecording(),
+            onLongPressEnd: (_) => _stopRecording(),
+            onTap: _hasText ? _sendMessage : null,
+            child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: const Color(0xFF00E676),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF00E676).withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: Icon(
+                _hasText ? Icons.send : (_isRecording ? Icons.mic_off : Icons.mic),
+                color: Colors.black87,
+                size: 24,
+              ),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MediaMessageBubble extends ConsumerStatefulWidget {
+  final Message message;
+  const _MediaMessageBubble({required this.message});
+
+  @override
+  ConsumerState<_MediaMessageBubble> createState() => _MediaMessageBubbleState();
+}
+
+class _MediaMessageBubbleState extends ConsumerState<_MediaMessageBubble> {
+  Uint8List? _imageBytes;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMedia();
+  }
+
+  Future<void> _loadMedia() async {
+    try {
+      final chatRepo = ref.read(chatRepositoryProvider);
+      final bytes = await chatRepo.downloadAndDecryptMedia(widget.message.content);
+      if (mounted) {
+        setState(() {
+          _imageBytes = Uint8List.fromList(bytes);
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const SizedBox(
+        width: 150,
+        height: 150,
+        child: Center(child: CircularProgressIndicator(color: Color(0xFF00E676))),
+      );
+    }
+
+    if (_imageBytes == null) {
+      return const SizedBox(
+        width: 150,
+        height: 150,
+        child: Center(child: Icon(Icons.broken_image, color: Colors.grey)),
+      );
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Image.memory(
+        _imageBytes!,
+        width: 250,
+        fit: BoxFit.cover,
+      ),
+    );
+  }
+}
+
+class _AudioMessageBubble extends ConsumerStatefulWidget {
+  final Message message;
+  final bool isMe;
+  const _AudioMessageBubble({required this.message, required this.isMe});
+
+  @override
+  ConsumerState<_AudioMessageBubble> createState() => _AudioMessageBubbleState();
+}
+
+class _AudioMessageBubbleState extends ConsumerState<_AudioMessageBubble> {
+  final AudioPlayer _audioPlayer = AudioPlayer();
+  bool _isPlaying = false;
+  bool _isLoading = true;
+  Duration _duration = Duration.zero;
+  Duration _position = Duration.zero;
+  String? _localPath;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMedia();
+    _audioPlayer.onPlayerStateChanged.listen((state) {
+      if (mounted) setState(() => _isPlaying = state == PlayerState.playing);
+    });
+    _audioPlayer.onDurationChanged.listen((d) {
+      if (mounted) setState(() => _duration = d);
+    });
+    _audioPlayer.onPositionChanged.listen((p) {
+      if (mounted) setState(() => _position = p);
+    });
+  }
+
+  Future<void> _loadMedia() async {
+    try {
+      final chatRepo = ref.read(chatRepositoryProvider);
+      final bytes = await chatRepo.downloadAndDecryptMedia(widget.message.content);
+      
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/audio_${widget.message.id}.m4a');
+      await file.writeAsBytes(bytes);
+      
+      if (mounted) {
+        setState(() {
+          _localPath = file.path;
+          _isLoading = false;
+        });
+        await _audioPlayer.setSourceDeviceFile(_localPath!);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const SizedBox(
+        width: 150,
+        height: 40,
+        child: Center(child: CircularProgressIndicator(color: Color(0xFF00E676))),
+      );
+    }
+
+    if (_localPath == null) {
+      return const Text('🎵 Erro ao carregar áudio', style: TextStyle(color: Colors.red));
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(_isPlaying ? Icons.pause : Icons.play_arrow, color: widget.isMe ? Colors.black87 : Colors.white),
+          onPressed: () {
+            if (_isPlaying) {
+              _audioPlayer.pause();
+            } else {
+              _audioPlayer.play(DeviceFileSource(_localPath!));
+            }
+          },
+        ),
+        Slider(
+          value: _position.inSeconds.toDouble(),
+          min: 0,
+          max: _duration.inSeconds.toDouble() > 0 ? _duration.inSeconds.toDouble() : 1,
+          onChanged: (val) {
+            _audioPlayer.seek(Duration(seconds: val.toInt()));
+          },
+          activeColor: widget.isMe ? Colors.black87 : const Color(0xFF00E676),
+          inactiveColor: widget.isMe ? Colors.black26 : Colors.white24,
+        ),
+        Text(
+          '${_position.inMinutes}:${(_position.inSeconds % 60).toString().padLeft(2, '0')}',
+          style: TextStyle(color: widget.isMe ? Colors.black87 : Colors.white, fontSize: 12),
+        ),
+      ],
     );
   }
 }

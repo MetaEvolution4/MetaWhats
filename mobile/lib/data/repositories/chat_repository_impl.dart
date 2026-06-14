@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/conversation.dart';
 import '../../domain/repositories/chat_repository.dart';
@@ -6,6 +8,7 @@ import '../datasources/api_datasource.dart';
 import '../datasources/websocket_datasource.dart';
 import '../datasources/local_db_datasource.dart';
 import '../../core/encryption.dart';
+import '../../core/encryption/media_encryption_manager.dart';
 
 class ChatRepositoryImpl implements ChatRepository {
   final ApiDatasource api;
@@ -31,6 +34,39 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
+  Future<Conversation> createGroupConversation(String title, List<String> userIds) async {
+    final response = await api.dio.post('/conversations/group', data: {
+      'title': title,
+      'userIds': userIds,
+    });
+    final group = Conversation.fromJson(response.data);
+
+    // E2EE: Generate Group AES Key
+    final mediaManager = MediaEncryptionManager(); // Reusing the AES utils we made
+    final groupKeyBase64 = mediaManager.generateRandomKeyBase64(); // We need to add this method
+
+    // Store the group key locally
+    await localDb.saveGroupKey(group.id, groupKeyBase64); // We need to add this method
+
+    // Distribute key to all participants individually
+    for (final userId in userIds) {
+      try {
+        final groupKeyPayload = jsonEncode({
+          'groupId': group.id,
+          'groupKey': groupKeyBase64,
+        });
+        
+        // We use the 1:1 Signal session to encrypt the group key for the recipient
+        await sendMessage(group.id, groupKeyPayload, userId, 'group_key_distribution');
+      } catch (e) {
+        print('Error distributing group key to user $userId: $e');
+      }
+    }
+
+    return group;
+  }
+
+  @override
   Future<List<Message>> getMessages(String conversationId) async {
     List<Message> localMessages = await localDb.getMessages(conversationId);
     List<Message> remoteMessages = [];
@@ -43,8 +79,30 @@ class ChatRepositoryImpl implements ChatRepository {
       for (var msg in remoteMessages) {
         if (msg.ciphertext != null && msg.ciphertext!.isNotEmpty && msg.content.isEmpty) {
           try {
-            final plainText = await signalManager.decryptMessage(msg.senderId, msg.ciphertext!, msg.cipherType ?? 3);
-            msg = msg.copyWith(content: plainText);
+            if (msg.cipherType == 4) {
+              // Decrypt Group Message
+              final groupKey = await localDb.getGroupKey(msg.conversationId);
+              if (groupKey != null) {
+                final payload = jsonDecode(msg.ciphertext!);
+                final mediaManager = MediaEncryptionManager();
+                final plainText = await mediaManager.decryptString(payload['ct'], groupKey, payload['iv']);
+                msg = msg.copyWith(content: plainText);
+              } else {
+                msg = msg.copyWith(content: '🔒 Waiting for Group Key');
+              }
+            } else {
+              // Decrypt 1:1 Message (Signal)
+              final plainText = await signalManager.decryptMessage(msg.senderId, msg.ciphertext!, msg.cipherType ?? 3);
+              
+              if (msg.type == 'group_key_distribution') {
+                // Save the group key
+                final payload = jsonDecode(plainText);
+                await localDb.saveGroupKey(payload['groupId'], payload['groupKey']);
+                msg = msg.copyWith(content: '🔑 Group Key Received', type: 'system');
+              } else {
+                msg = msg.copyWith(content: plainText);
+              }
+            }
           } catch (e) {
             print('Error decrypting message on sync: $e');
             msg = msg.copyWith(content: '🔒 Mensagem Criptografada');
@@ -68,55 +126,89 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
-  Future<Message> sendMessage(String conversationId, String content, [String? recipientUserId]) async {
+  Future<Message> sendMessage(String conversationId, String content, [String? recipientUserId, String messageType = 'text']) async {
     String? finalCiphertext;
     int cipherType = 3;
 
     if (recipientUserId != null) {
       try {
         finalCiphertext = await signalManager.encryptMessage(recipientUserId, content);
-        // Em um app real, o PreKeyWhisperMessage usaria tipo 1 e trocaria para 3 depois. Usamos 3 para WhisperMessage.
       } catch (e) {
         print('Erro de E2EE: $e. Tentaremos pegar a chave do servidor primeiro se a sessão não existir');
         try {
-          // Fallback: Busca prekey do servidor e tenta processar a bundle
           final bundleRes = await api.dio.get('/devices/bundle/$recipientUserId');
           if (bundleRes.data != null) {
             await signalManager.processPreKeyBundle(recipientUserId, bundleRes.data);
             finalCiphertext = await signalManager.encryptMessage(recipientUserId, content);
-            cipherType = 1; // 1 = PreKeyWhisperMessage (Signal protocol initialization)
+            cipherType = 1;
           }
         } catch (innerE) {
           print('Falha final no E2EE: $innerE');
         }
       }
+    } else {
+      // É um grupo: Usa a Symmetric Group Key
+      final groupKey = await localDb.getGroupKey(conversationId);
+      if (groupKey != null) {
+        final mediaManager = MediaEncryptionManager();
+        final encResult = await mediaManager.encryptString(content, groupKey);
+        
+        // Empacota o ciphertext e o IV no finalCiphertext (formato JSON)
+        final groupPayload = {
+          'ct': encResult['ciphertext'],
+          'iv': encResult['ivBase64'],
+        };
+        finalCiphertext = jsonEncode(groupPayload);
+        cipherType = 4; // 4 = Group Symmetric Message
+      } else {
+        print('Erro: Group Key não encontrada localmente. Mensagem será enviada em texto puro (não recomendado).');
+        finalCiphertext = content;
+        cipherType = 0;
+      }
     }
 
-    // Criamos a mensagem a ser enviada
     final messagePayload = {
       'conversationId': conversationId,
       'ciphertext': finalCiphertext,
       'cipher_type': cipherType,
-      'type': 'text',
+      'type': messageType,
     };
 
-    // Envia via Socket.IO
     socket.sendMessage(messagePayload);
 
     // Opcionalmente podemos criar uma mensagem fake com status 'sending' 
     // enquanto o servidor não confirma, mas para o MVP, vamos aguardar a confirmação do servidor.
-    // Como a API REST pode ser usada como fallback:
+    // Como a API REST pode ser fallback:
     final response = await api.dio.post('/conversations/$conversationId/messages', data: messagePayload);
     final sentMessage = Message.fromJson(response.data);
     
     // Salva localmente a mensagem DECIFRADA para o remetente não perder o histórico
-    final localCopy = sentMessage.copyWith(content: content);
+    final localCopy = sentMessage.copyWith(content: content, type: messageType);
     await localDb.insertMessage(localCopy);
 
     return localCopy;
   }
 
   @override
+  Future<Message> sendMediaMessage(String conversationId, String filePath, String type, [String? recipientUserId]) async {
+    // 1. Criptografar o arquivo localmente
+    final file = File(filePath);
+    final mediaManager = MediaEncryptionManager();
+    final encryptedData = await mediaManager.encryptFile(file);
+    
+    // 2. Fazer upload do binário criptografado
+    final mediaId = await api.uploadMedia(encryptedData['encryptedBytes'], file.uri.pathSegments.last);
+
+    // 3. Montar o payload decifrado (a ser embutido na msg Signal)
+    final innerPayload = jsonEncode({
+      'mediaId': mediaId,
+      'keyBase64': encryptedData['keyBase64'],
+      'ivBase64': encryptedData['ivBase64'],
+    });
+
+    // 4. Enviar usando o fluxo normal do Signal E2EE
+    return await sendMessage(conversationId, innerPayload, recipientUserId, type);
+  }
   Future<void> markAsRead(String messageId) async {
     try {
       await api.dio.post('/messages/$messageId/read');
@@ -135,13 +227,51 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
+  Future<List<int>> downloadAndDecryptMedia(String innerPayloadJson) async {
+    final payload = jsonDecode(innerPayloadJson);
+    final String mediaId = payload['mediaId'];
+    final String keyBase64 = payload['keyBase64'];
+    final String ivBase64 = payload['ivBase64'];
+
+    // 1. Download do binário criptografado
+    final encryptedBytes = await api.downloadMedia(mediaId);
+
+    // 2. Decriptar localmente
+    final mediaManager = MediaEncryptionManager();
+    final decryptedBytes = await mediaManager.decryptBytes(encryptedBytes, keyBase64, ivBase64);
+
+    return decryptedBytes;
+  }
+
+  @override
   Stream<Message> get onMessageReceived {
     return socket.onMessage.asyncMap((data) async {
       var msg = Message.fromJson(data);
       if (msg.ciphertext != null && msg.ciphertext!.isNotEmpty && msg.content.isEmpty) {
         try {
-          final plainText = await signalManager.decryptMessage(msg.senderId, msg.ciphertext!, msg.cipherType ?? 3);
-          msg = msg.copyWith(content: plainText);
+          if (msg.cipherType == 4) {
+            // Decrypt Group Message
+            final groupKey = await localDb.getGroupKey(msg.conversationId);
+            if (groupKey != null) {
+              final payload = jsonDecode(msg.ciphertext!);
+              final mediaManager = MediaEncryptionManager();
+              final plainText = await mediaManager.decryptString(payload['ct'], groupKey, payload['iv']);
+              msg = msg.copyWith(content: plainText);
+            } else {
+              msg = msg.copyWith(content: '🔒 Waiting for Group Key');
+            }
+          } else {
+            // Decrypt 1:1 Message
+            final plainText = await signalManager.decryptMessage(msg.senderId, msg.ciphertext!, msg.cipherType ?? 3);
+            
+            if (msg.type == 'group_key_distribution') {
+              final payload = jsonDecode(plainText);
+              await localDb.saveGroupKey(payload['groupId'], payload['groupKey']);
+              msg = msg.copyWith(content: '🔑 Group Key Received', type: 'system');
+            } else {
+              msg = msg.copyWith(content: plainText);
+            }
+          }
         } catch (e) {
           print('Socket E2EE decryption failed: $e');
           msg = msg.copyWith(content: '🔒 Mensagem Criptografada');

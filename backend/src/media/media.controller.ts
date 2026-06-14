@@ -1,4 +1,6 @@
-import { Controller, Post, Get, Param, UseInterceptors, UploadedFile, UseGuards, Request, BadRequestException } from '@nestjs/common';
+import { Controller, Post, Get, Param, UseInterceptors, UploadedFile, UseGuards, Request, BadRequestException, Res } from '@nestjs/common';
+import type { Response } from 'express';
+import { createReadStream } from 'fs';
 import { MediaService } from './media.service';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
@@ -49,5 +51,15 @@ export class MediaController {
   @ApiOperation({ summary: 'Get media metadata' })
   getMedia(@Param('id') id: string) {
     return this.mediaService.getMedia(id);
+  }
+
+  @Get('download/:id')
+  @ApiOperation({ summary: 'Download media file' })
+  async downloadMedia(@Param('id') id: string, @Res() res: Response) {
+    const media = await this.mediaService.getMedia(id);
+    const file = createReadStream(media.storage_path);
+    res.setHeader('Content-Type', media.mime_type);
+    res.setHeader('Content-Disposition', `attachment; filename="${media.original_name}"`);
+    file.pipe(res);
   }
 }

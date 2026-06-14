@@ -9,6 +9,7 @@ class Message {
   final int? cipherType;
   final String? type;
   final String? nonce;
+  final String? replyToMessageId;
   final MessageStatus status;
   final DateTime createdAt;
 
@@ -21,6 +22,7 @@ class Message {
     this.cipherType,
     this.type = 'text',
     this.nonce,
+    this.replyToMessageId,
     this.status = MessageStatus.sent,
     required this.createdAt,
   });
@@ -35,6 +37,7 @@ class Message {
       cipherType: json['cipherType'] ?? json['cipher_type'],
       type: json['type'] ?? 'text',
       nonce: json['nonce'],
+      replyToMessageId: json['replyToMessageId'] ?? json['reply_to_message_id'],
       status: _parseStatus(json),
       createdAt: (json['createdAt'] != null || json['created_at'] != null)
           ? DateTime.parse(json['createdAt'] ?? json['created_at']) 
@@ -52,6 +55,7 @@ class Message {
       'cipher_type': cipherType,
       'type': type,
       'nonce': nonce,
+      'reply_to_message_id': replyToMessageId,
       'status': status.toString().split('.').last,
       'created_at': createdAt.toIso8601String(),
     };
@@ -61,6 +65,7 @@ class Message {
   Message copyWith({
     String? content,
     String? type,
+    String? replyToMessageId,
     MessageStatus? status,
   }) {
     return Message(
@@ -68,8 +73,11 @@ class Message {
       conversationId: this.conversationId,
       senderId: this.senderId,
       content: content ?? this.content,
+      ciphertext: this.ciphertext,
+      cipherType: this.cipherType,
       type: type ?? this.type,
       nonce: this.nonce,
+      replyToMessageId: replyToMessageId ?? this.replyToMessageId,
       status: status ?? this.status,
       createdAt: this.createdAt,
     );

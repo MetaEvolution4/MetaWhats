@@ -7,6 +7,8 @@ import '../../core/providers.dart';
 import '../../domain/entities/conversation.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/user.dart';
+import '../../core/webrtc/webrtc_manager.dart';
+import '../widgets/incoming_call_dialog.dart';
 import 'package:dio/dio.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -79,14 +81,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         }
       }
     }
-  }
-
   StreamSubscription<Message>? _messageSub;
+  StreamSubscription<Map<String, dynamic>>? _callSub;
 
   void _connectSocket() {
     final socketDs = ref.read(webSocketDatasourceProvider);
     socketDs.connect();
     
+    // Initialize WebRTCManager
+    final rtcManager = WebRTCManager();
+    rtcManager.initialize(socketDs);
+
     final chatRepo = ref.read(chatRepositoryProvider);
     _messageSub = chatRepo.onMessageReceived.listen((message) {
       // Reload conversations when a new message arrives
@@ -97,11 +102,26 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         chatRepo.markAsDelivered(message.id);
       }
     });
+
+    _callSub = socketDs.onCallOffer.listen((data) {
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => IncomingCallDialog(
+            callerId: data['callerId'],
+            conversationId: data['conversationId'],
+            offer: data['offer'],
+          ),
+        );
+      }
+    });
   }
 
   @override
   void dispose() {
     _messageSub?.cancel();
+    _callSub?.cancel();
     _pollingTimer?.cancel();
     super.dispose();
   }

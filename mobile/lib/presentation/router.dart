@@ -9,6 +9,7 @@ import 'screens/home_screen.dart';
 import 'screens/contacts_screen.dart';
 import 'screens/chat_screen.dart';
 import 'screens/create_group_screen.dart';
+import 'screens/call_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
   return GoRouter(
@@ -50,6 +51,17 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/create-group',
         builder: (context, state) => const CreateGroupScreen(),
+      ),
+      GoRoute(
+        path: '/call',
+        builder: (context, state) {
+          final extra = state.extra as Map<String, dynamic>? ?? {};
+          return CallScreen(
+            targetUserId: extra['targetUserId'],
+            conversationId: extra['conversationId'],
+            incomingOffer: extra['offer'],
+          );
+        },
       ),
     ],
   );

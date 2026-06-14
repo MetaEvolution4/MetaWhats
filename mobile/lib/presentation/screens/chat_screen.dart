@@ -42,14 +42,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   bool _isRecording = false;
   bool _hasText = false;
 
+  // Presence & Typing
+  StreamSubscription<Map<String, dynamic>>? _typingSub;
+  StreamSubscription<Map<String, dynamic>>? _presenceSub;
+  bool _isTyping = false;
+  Timer? _typingTimer;
+  String _presenceStatus = 'Desconectado';
+  
+  // Replying
+  Message? _replyingToMessage;
+
   @override
   void initState() {
     super.initState();
     _currentUser = widget.currentUser;
     _messageController.addListener(() {
+      final text = _messageController.text.trim();
       setState(() {
-        _hasText = _messageController.text.trim().isNotEmpty;
+        _hasText = text.isNotEmpty;
       });
+      _handleTyping(text.isNotEmpty);
     });
     _initChat();
     
@@ -58,6 +70,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         _pollMessages();
       }
     });
+  }
+
+  void _handleTyping(bool isTyping) {
+    if (_currentConversation == null) return;
+    final socketDs = ref.read(webSocketDatasourceProvider);
+    if (isTyping) {
+      socketDs.socket?.emit('typing:start', {'conversationId': _currentConversation!.id});
+      // Auto stop after 3 seconds of no typing
+      _typingTimer?.cancel();
+      _typingTimer = Timer(const Duration(seconds: 3), () {
+        socketDs.socket?.emit('typing:stop', {'conversationId': _currentConversation!.id});
+      });
+    } else {
+      socketDs.socket?.emit('typing:stop', {'conversationId': _currentConversation!.id});
+      _typingTimer?.cancel();
+    }
   }
 
   Future<void> _initChat() async {
@@ -144,10 +172,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 if (statusStr == 'delivered' && msg.status != MessageStatus.read) newStatus = MessageStatus.delivered;
                 
                 _messages[index] = msg.copyWith(status: newStatus);
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Status atualizado: $statusStr')));
               }
             }
           });
+        }
+      });
+
+      // 5. Listen to typing and presence
+      final socketDs = ref.read(webSocketDatasourceProvider);
+      _typingSub = socketDs.onTyping.listen((data) {
+        if (data['conversationId'] == _currentConversation?.id) {
+          if (data['userId'] != _currentUser?.id) {
+            if (mounted) {
+              setState(() {
+                _isTyping = data['isTyping'] == true;
+              });
+            }
+          }
+        }
+      });
+
+      _presenceSub = socketDs.onPresence.listen((data) {
+        if (!(_currentConversation?.isGroup ?? true)) {
+          final otherUser = _currentConversation!.participants.firstWhere((p) => p.id != _currentUser?.id);
+          if (data['userId'] == otherUser.id) {
+            if (mounted) {
+              setState(() {
+                if (data['status'] == 'online') {
+                  _presenceStatus = 'Online';
+                } else {
+                  _presenceStatus = 'Visto recentemente'; // MVP
+                }
+              });
+            }
+          }
         }
       });
     } catch (e) {
@@ -197,6 +255,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _focusNode.dispose();
     _messageSub?.cancel();
     _messageStatusSub?.cancel();
+    _typingSub?.cancel();
+    _presenceSub?.cancel();
+    _typingTimer?.cancel();
     _pollingTimer?.cancel();
     super.dispose();
   }
@@ -217,7 +278,11 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     final text = _messageController.text.trim();
     if (text.isEmpty || _currentConversation == null) return;
 
+    final replyId = _replyingToMessage?.id;
     _messageController.clear();
+    setState(() {
+      _replyingToMessage = null;
+    });
     _focusNode.requestFocus();
     
     // Determine recipient user id if direct chat
@@ -228,7 +293,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
 
     try {
       final chatRepo = ref.read(chatRepositoryProvider);
-      final sentMsg = await chatRepo.sendMessage(_currentConversation!.id, text, recipientUserId);
+      final sentMsg = await chatRepo.sendMessage(_currentConversation!.id, text, recipientUserId, 'text', replyId);
       if (mounted) {
         setState(() {
           if (!_messages.any((m) => m.id == sentMsg.id)) {
@@ -384,7 +449,14 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                     style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const Text('Online', style: TextStyle(color: Color(0xFF00E676), fontSize: 12)),
+                  Text(
+                    _isTyping ? 'Digitando...' : _presenceStatus, 
+                    style: TextStyle(
+                      color: _isTyping ? const Color(0xFF00E676) : Colors.white70, 
+                      fontSize: 12,
+                      fontStyle: _isTyping ? FontStyle.italic : FontStyle.normal,
+                    )
+                  ),
                 ],
               ),
             ),
@@ -392,7 +464,18 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         ),
         actions: [
           IconButton(icon: const Icon(Icons.videocam, color: Colors.white), onPressed: () {}),
-          IconButton(icon: const Icon(Icons.call, color: Colors.white), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.call, color: Colors.white), 
+            onPressed: () {
+              if (_currentConversation != null && !_currentConversation!.isGroup) {
+                final targetUser = _currentConversation!.participants.firstWhere((p) => p.id != _currentUser?.id);
+                context.push('/call', extra: {
+                  'targetUserId': targetUser.id,
+                  'conversationId': _currentConversation!.id,
+                });
+              }
+            }
+          ),
           IconButton(icon: const Icon(Icons.more_vert, color: Colors.white), onPressed: () {}),
         ],
       ),
@@ -489,11 +572,26 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 
   Widget _buildMessageBubble(Message msg, bool isMe) {
+    Message? repliedMsg;
+    if (msg.replyToMessageId != null) {
+      repliedMsg = _messages.where((m) => m.id == msg.replyToMessageId).firstOrNull;
+    }
+
     return Align(
       alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      child: GestureDetector(
+        onHorizontalDragEnd: (details) {
+          if (details.primaryVelocity != null && details.primaryVelocity! > 0) {
+            // Swipe right to reply
+            setState(() {
+              _replyingToMessage = msg;
+            });
+            _focusNode.requestFocus();
+          }
+        },
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
           color: isMe ? const Color(0xFF00E676) : const Color(0xFF1E1E1E),
           borderRadius: BorderRadius.only(
@@ -513,6 +611,22 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
+            if (repliedMsg != null)
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: const Border(left: BorderSide(color: Colors.white, width: 3)),
+                ),
+                child: Text(
+                  repliedMsg.content,
+                  style: TextStyle(color: isMe ? Colors.black87 : Colors.white70, fontSize: 12),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
             if (msg.type == 'image' && msg.content.startsWith('{'))
               _MediaMessageBubble(message: msg)
             else if (msg.type == 'audio' && msg.content.startsWith('{'))
@@ -556,53 +670,92 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
       color: const Color(0xFF0A0A0A),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Expanded(
-            child: Container(
+          if (_replyingToMessage != null)
+            Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               decoration: BoxDecoration(
-                color: const Color(0xFF141414),
-                borderRadius: BorderRadius.circular(30),
-                border: Border.all(color: Colors.white.withOpacity(0.1)),
+                color: const Color(0xFF1E1E1E),
+                borderRadius: BorderRadius.circular(12),
+                border: const Border(left: BorderSide(color: Color(0xFF00E676), width: 4)),
               ),
               child: Row(
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
-                    onPressed: () {},
-                  ),
                   Expanded(
-                    child: _isRecording 
-                        ? const Padding(
-                            padding: EdgeInsets.only(left: 16),
-                            child: Text('Gravando áudio...', style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold)),
-                          )
-                        : TextField(
-                            controller: _messageController,
-                            focusNode: _focusNode,
-                            style: const TextStyle(color: Colors.white),
-                            decoration: const InputDecoration(
-                              hintText: 'Mensagem',
-                              hintStyle: TextStyle(color: Colors.grey),
-                              border: InputBorder.none,
-                            ),
-                            onSubmitted: (_) => _sendMessage(),
-                          ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _replyingToMessage!.senderId == _currentUser?.id ? 'Você' : 'Contato',
+                          style: const TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _replyingToMessage!.content,
+                          style: const TextStyle(color: Colors.white70, fontSize: 13),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+                    ),
                   ),
-                  if (!_isRecording && !_hasText) ...[
-                    IconButton(
-                      icon: const Icon(Icons.attach_file, color: Colors.grey),
-                      onPressed: () => _pickAndSendMedia(ImageSource.gallery),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.camera_alt, color: Colors.grey),
-                      onPressed: () => _pickAndSendMedia(ImageSource.camera),
-                    ),
-                  ],
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.grey, size: 20),
+                    onPressed: () => setState(() => _replyingToMessage = null),
+                  ),
                 ],
               ),
             ),
-          ),
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF141414),
+                    borderRadius: BorderRadius.circular(30),
+                    border: Border.all(color: Colors.white.withOpacity(0.1)),
+                  ),
+                  child: Row(
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.emoji_emotions_outlined, color: Colors.grey),
+                        onPressed: () {},
+                      ),
+                      Expanded(
+                        child: _isRecording 
+                            ? const Padding(
+                                padding: EdgeInsets.only(left: 16),
+                                child: Text('Gravando áudio...', style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold)),
+                              )
+                            : TextField(
+                                controller: _messageController,
+                                focusNode: _focusNode,
+                                style: const TextStyle(color: Colors.white),
+                                decoration: const InputDecoration(
+                                  hintText: 'Mensagem',
+                                  hintStyle: TextStyle(color: Colors.grey),
+                                  border: InputBorder.none,
+                                ),
+                                onSubmitted: (_) => _sendMessage(),
+                              ),
+                      ),
+                      if (!_isRecording && !_hasText) ...[
+                        IconButton(
+                          icon: const Icon(Icons.attach_file, color: Colors.grey),
+                          onPressed: () => _pickAndSendMedia(ImageSource.gallery),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.camera_alt, color: Colors.grey),
+                          onPressed: () => _pickAndSendMedia(ImageSource.camera),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
           const SizedBox(width: 8),
           GestureDetector(
             onLongPressStart: (_) => _startRecording(),

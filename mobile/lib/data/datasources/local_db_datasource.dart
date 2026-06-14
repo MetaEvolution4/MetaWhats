@@ -23,7 +23,7 @@ class LocalDbDatasource {
 
     return await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE messages(
@@ -34,7 +34,7 @@ class LocalDbDatasource {
             content TEXT,
             ciphertext TEXT,
             cipher_type INTEGER,
-            media_id TEXT,
+            reply_to_message_id TEXT,
             status TEXT,
             created_at TEXT
           )
@@ -54,6 +54,13 @@ class LocalDbDatasource {
               key_base64 TEXT
             )
           ''');
+        }
+        if (oldVersion < 3) {
+          try {
+            await db.execute('ALTER TABLE messages ADD COLUMN reply_to_message_id TEXT');
+          } catch(e) {
+            // Might already exist
+          }
         }
       },
     );
@@ -91,9 +98,9 @@ class LocalDbDatasource {
     if (db == null) return [];
     final maps = await db.query(
       'messages',
-      where: 'conversationId = ?',
+      where: 'conversation_id = ?',
       whereArgs: [conversationId],
-      orderBy: 'createdAt ASC',
+      orderBy: 'created_at ASC',
     );
     return maps.map((map) => Message.fromJson(map)).toList();
   }

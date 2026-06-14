@@ -154,4 +154,64 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
       conversationId: data.conversationId
     });
   }
+
+  @SubscribeMessage('message:read')
+  async handleMessageRead(@MessageBody() data: { messageId: string, conversationId: string }, @ConnectedSocket() client: Socket) {
+    const user = client.data.user;
+    try {
+      // Update DB
+      await this.prisma.messageStatus.upsert({
+        where: { message_id_user_id_status: { message_id: data.messageId, user_id: user.sub, status: 'read' } },
+        update: {},
+        create: { message_id: data.messageId, user_id: user.sub, status: 'read' }
+      });
+      // Broadcast read receipt
+      client.to(`conversation_${data.conversationId}`).emit('message:status', {
+        messageId: data.messageId,
+        userId: user.sub,
+        status: 'read'
+      });
+    } catch(e) {}
+  }
+
+  // --- WebRTC Signaling ---
+  
+  @SubscribeMessage('call:offer')
+  handleCallOffer(@MessageBody() data: { targetUserId: string, conversationId: string, offer: any }, @ConnectedSocket() client: Socket) {
+    client.to(`user_${data.targetUserId}`).emit('call:offer', {
+      callerId: client.data.user.sub,
+      conversationId: data.conversationId,
+      offer: data.offer
+    });
+  }
+
+  @SubscribeMessage('call:answer')
+  handleCallAnswer(@MessageBody() data: { targetUserId: string, answer: any }, @ConnectedSocket() client: Socket) {
+    client.to(`user_${data.targetUserId}`).emit('call:answer', {
+      answererId: client.data.user.sub,
+      answer: data.answer
+    });
+  }
+
+  @SubscribeMessage('call:ice-candidate')
+  handleIceCandidate(@MessageBody() data: { targetUserId: string, candidate: any }, @ConnectedSocket() client: Socket) {
+    client.to(`user_${data.targetUserId}`).emit('call:ice-candidate', {
+      senderId: client.data.user.sub,
+      candidate: data.candidate
+    });
+  }
+
+  @SubscribeMessage('call:end')
+  handleCallEnd(@MessageBody() data: { targetUserId: string }, @ConnectedSocket() client: Socket) {
+    client.to(`user_${data.targetUserId}`).emit('call:end', {
+      userId: client.data.user.sub
+    });
+  }
+
+  @SubscribeMessage('call:reject')
+  handleCallReject(@MessageBody() data: { targetUserId: string }, @ConnectedSocket() client: Socket) {
+    client.to(`user_${data.targetUserId}`).emit('call:reject', {
+      userId: client.data.user.sub
+    });
+  }
 }

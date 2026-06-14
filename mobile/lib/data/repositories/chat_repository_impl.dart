@@ -126,7 +126,7 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
-  Future<Message> sendMessage(String conversationId, String content, [String? recipientUserId, String messageType = 'text']) async {
+  Future<Message> sendMessage(String conversationId, String content, [String? recipientUserId, String messageType = 'text', String? replyToMessageId]) async {
     String? finalCiphertext;
     int cipherType = 3;
 
@@ -172,6 +172,7 @@ class ChatRepositoryImpl implements ChatRepository {
       'ciphertext': finalCiphertext,
       'cipher_type': cipherType,
       'type': messageType,
+      'replyToMessageId': replyToMessageId,
     };
 
     socket.sendMessage(messagePayload);
@@ -190,7 +191,7 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
-  Future<Message> sendMediaMessage(String conversationId, String filePath, String type, [String? recipientUserId]) async {
+  Future<Message> sendMediaMessage(String conversationId, String filePath, String type, [String? recipientUserId, String? replyToMessageId]) async {
     // 1. Criptografar o arquivo localmente
     final file = File(filePath);
     final mediaManager = MediaEncryptionManager();
@@ -207,7 +208,7 @@ class ChatRepositoryImpl implements ChatRepository {
     });
 
     // 4. Enviar usando o fluxo normal do Signal E2EE
-    return await sendMessage(conversationId, innerPayload, recipientUserId, type);
+    return await sendMessage(conversationId, innerPayload, recipientUserId, type, replyToMessageId);
   }
   Future<void> markAsRead(String messageId) async {
     try {

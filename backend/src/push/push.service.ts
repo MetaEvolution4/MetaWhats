@@ -6,14 +6,23 @@ export class PushService {
   private readonly logger = new Logger(PushService.name);
 
   constructor() {
-    // In production, Firebase config should come from env or google-services.json
-    // For now we try to initialize with default app if GOOGLE_APPLICATION_CREDENTIALS is set
     try {
       if (!admin.apps.length) {
-        admin.initializeApp();
+        if (process.env.FIREBASE_CREDENTIALS_JSON) {
+          // Inicializa via JSON injetado no Coolify
+          const serviceAccount = JSON.parse(process.env.FIREBASE_CREDENTIALS_JSON);
+          admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount)
+          });
+          this.logger.log('Firebase Admin inicializado via FIREBASE_CREDENTIALS_JSON');
+        } else {
+          // Fallback para a variável padrão GOOGLE_APPLICATION_CREDENTIALS (caminho de arquivo)
+          admin.initializeApp();
+          this.logger.log('Firebase Admin inicializado via default application credentials');
+        }
       }
     } catch (e) {
-      this.logger.error('Failed to initialize Firebase Admin SDK. Did you set GOOGLE_APPLICATION_CREDENTIALS?', e);
+      this.logger.error('Falha ao inicializar o Firebase Admin SDK.', e);
     }
   }
 

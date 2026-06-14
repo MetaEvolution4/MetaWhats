@@ -204,15 +204,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     _messageController.clear();
     _focusNode.requestFocus();
     
-    // Determine recipient public key if direct chat
-    String? recipientPublicKey;
+    // Determine recipient user id if direct chat
+    String? recipientUserId;
     if (!_currentConversation!.isGroup && widget.contact != null) {
-      recipientPublicKey = widget.contact!.publicKey;
+      recipientUserId = widget.contact!.id;
     }
 
     try {
       final chatRepo = ref.read(chatRepositoryProvider);
-      final sentMsg = await chatRepo.sendMessage(_currentConversation!.id, text, recipientPublicKey);
+      final sentMsg = await chatRepo.sendMessage(_currentConversation!.id, text, recipientUserId);
       if (mounted) {
         setState(() {
           if (!_messages.any((m) => m.id == sentMsg.id)) {

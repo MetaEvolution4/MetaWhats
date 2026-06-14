@@ -9,8 +9,8 @@ import 'core/services/push_notification_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
-  await PushNotificationService().initialize();
+  // await Firebase.initializeApp();
+  // await PushNotificationService().initialize();
   runApp(const ProviderScope(child: MetaWhatsApp()));
 }
 

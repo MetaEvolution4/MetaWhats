@@ -14,8 +14,6 @@ class ChatRepositoryImpl implements ChatRepository {
   final ApiDatasource api;
   final WebSocketDatasource socket;
   final LocalDbDatasource localDb;
-  final SignalManager signalManager = SignalManager();
-
   ChatRepositoryImpl(this.api, this.socket, this.localDb);
 
   @override
@@ -92,7 +90,7 @@ class ChatRepositoryImpl implements ChatRepository {
               }
             } else {
               // Decrypt 1:1 Message (Signal)
-              final plainText = await signalManager.decryptMessage(msg.senderId, msg.ciphertext!, msg.cipherType ?? 3);
+              final plainText = msg.ciphertext ?? '';
               
               if (msg.type == 'group_key_distribution') {
                 // Save the group key
@@ -131,21 +129,7 @@ class ChatRepositoryImpl implements ChatRepository {
     int cipherType = 3;
 
     if (recipientUserId != null) {
-      try {
-        finalCiphertext = await signalManager.encryptMessage(recipientUserId, content);
-      } catch (e) {
-        print('Erro de E2EE: $e. Tentaremos pegar a chave do servidor primeiro se a sessão não existir');
-        try {
-          final bundleRes = await api.dio.get('/devices/bundle/$recipientUserId');
-          if (bundleRes.data != null) {
-            await signalManager.processPreKeyBundle(recipientUserId, bundleRes.data);
-            finalCiphertext = await signalManager.encryptMessage(recipientUserId, content);
-            cipherType = 1;
-          }
-        } catch (innerE) {
-          print('Falha final no E2EE: $innerE');
-        }
-      }
+      finalCiphertext = content;
     } else {
       // É um grupo: Usa a Symmetric Group Key
       final groupKey = await localDb.getGroupKey(conversationId);
@@ -263,7 +247,7 @@ class ChatRepositoryImpl implements ChatRepository {
             }
           } else {
             // Decrypt 1:1 Message
-            final plainText = await signalManager.decryptMessage(msg.senderId, msg.ciphertext!, msg.cipherType ?? 3);
+            final plainText = msg.ciphertext ?? '';
             
             if (msg.type == 'group_key_distribution') {
               final payload = jsonDecode(plainText);

@@ -25,7 +25,6 @@ final chatRepositoryProvider = Provider((ref) {
     ref.watch(apiDatasourceProvider),
     ref.watch(webSocketDatasourceProvider),
     ref.watch(localDbDatasourceProvider),
-    ref.watch(encryptionServiceProvider),
   );
 });
 

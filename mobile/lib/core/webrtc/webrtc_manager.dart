@@ -67,7 +67,7 @@ class WebRTCManager {
     RTCSessionDescription offer = await _peerConnection!.createOffer();
     await _peerConnection!.setLocalDescription(offer);
     
-    _socket?.socket.emit('call:offer', {
+    _socket?.socket?.emit('call:offer', {
       'targetUserId': targetUserId,
       'conversationId': conversationId,
       'offer': offer.toMap(),
@@ -86,7 +86,7 @@ class WebRTCManager {
     RTCSessionDescription answer = await _peerConnection!.createAnswer();
     await _peerConnection!.setLocalDescription(answer);
 
-    _socket?.socket.emit('call:answer', {
+    _socket?.socket?.emit('call:answer', {
       'targetUserId': callerId,
       'answer': answer.toMap(),
     });
@@ -110,7 +110,7 @@ class WebRTCManager {
 
   Future<void> endCall() async {
     if (_targetUserId != null) {
-      _socket?.socket.emit('call:end', {
+      _socket?.socket?.emit('call:end', {
         'targetUserId': _targetUserId,
       });
     }
@@ -138,7 +138,7 @@ class WebRTCManager {
 
     _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
       if (_targetUserId != null) {
-        _socket?.socket.emit('call:ice-candidate', {
+        _socket?.socket?.emit('call:ice-candidate', {
           'targetUserId': _targetUserId,
           'candidate': candidate.toMap(),
         });

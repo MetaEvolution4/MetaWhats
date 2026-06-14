@@ -1,8 +1,9 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/constants.dart';
 import '../../domain/entities/user.dart';
 import '../../domain/repositories/auth_repository.dart';
 import '../datasources/api_datasource.dart';
-import '../../core/encryption/signal_manager.dart';
+
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 class AuthRepositoryImpl implements AuthRepository {
@@ -39,15 +40,19 @@ class AuthRepositoryImpl implements AuthRepository {
       print('FCM Token error: $e');
     }
 
-    // Generate/Load Signal Protocol keys and bundle
-    final signalManager = SignalManager();
-    final bundle = await signalManager.getBundleForServer();
-
-    bundle['fcm_token'] = fcmToken;
-    bundle['platform'] = 'mobile';
+    final Map<String, dynamic> bundle = {
+      'fcm_token': fcmToken,
+      'platform': 'mobile',
+      'registration_id': 1,
+      'identity_key': 'dummy',
+      'signed_pre_key': 'dummy',
+      'signed_signature': 'dummy',
+      'signed_key_id': 1,
+      'pre_keys': [],
+    };
 
     // Register device and bundle on the backend
-    await api.dio.post('/devices/register', data: bundle);
+    await api.dio.post('${AppConstants.baseUrl}/devices/register', data: bundle);
     
     return token;
   }

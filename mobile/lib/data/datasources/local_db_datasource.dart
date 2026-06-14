@@ -68,7 +68,7 @@ class LocalDbDatasource {
 
   Future<void> saveGroupKey(String groupId, String keyBase64) async {
     final db = await database;
-    await db.insert('group_keys', {
+    await db?.insert('group_keys', {
       'group_id': groupId,
       'key_base64': keyBase64,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -76,11 +76,11 @@ class LocalDbDatasource {
 
   Future<String?> getGroupKey(String groupId) async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(
+    final List<Map<String, dynamic>> maps = await db?.query(
       'group_keys',
       where: 'group_id = ?',
       whereArgs: [groupId],
-    );
+    ) ?? [];
     if (maps.isNotEmpty) {
       return maps.first['key_base64'] as String;
     }

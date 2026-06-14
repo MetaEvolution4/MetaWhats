@@ -48,6 +48,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             currentUser: extra['currentUser'],
           );
         },
+      ),
       GoRoute(
         path: '/create-group',
         builder: (context, state) => const CreateGroupScreen(),

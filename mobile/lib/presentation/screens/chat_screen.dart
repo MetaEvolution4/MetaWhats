@@ -468,11 +468,32 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             icon: const Icon(Icons.call, color: Colors.white), 
             onPressed: () {
               if (_currentConversation != null && !_currentConversation!.isGroup) {
-                final targetUser = _currentConversation!.participants.firstWhere((p) => p.id != _currentUser?.id);
-                context.push('/call', extra: {
-                  'targetUserId': targetUser.id,
-                  'conversationId': _currentConversation!.id,
-                });
+                try {
+                  String? targetUserId;
+                  if (widget.contact != null) {
+                    targetUserId = widget.contact!.id;
+                  } else {
+                    final otherUsers = _currentConversation!.participants.where((p) => p.id != _currentUser?.id).toList();
+                    if (otherUsers.isNotEmpty) {
+                      targetUserId = otherUsers.first.id;
+                    } else if (_currentConversation!.participants.isNotEmpty) {
+                      targetUserId = _currentConversation!.participants.first.id;
+                    }
+                  }
+                  
+                  if (targetUserId != null) {
+                    context.push('/call', extra: {
+                      'targetUserId': targetUserId,
+                      'conversationId': _currentConversation!.id,
+                    });
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Usuário alvo não encontrado')));
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao ligar: $e')));
+                }
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não é possível ligar')));
               }
             }
           ),
@@ -662,6 +683,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
             ),
           ],
         ),
+        ),
       ),
     );
   }
@@ -781,6 +803,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               ),
             ),
           ),
+        ],
+      ),
         ],
       ),
     );

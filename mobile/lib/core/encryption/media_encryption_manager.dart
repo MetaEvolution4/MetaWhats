@@ -11,7 +11,7 @@ class MediaEncryptionManager {
   /// Encrypts a file using AES-GCM.
   /// Returns a map containing the encrypted bytes, the base64 AES key, and the base64 IV.
   String generateRandomKeyBase64() {
-    final key = Key.fromSecureRandom(32);
+    final key = encrypt.Key.fromSecureRandom(32);
     return key.base64;
   }
 

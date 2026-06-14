@@ -7,7 +7,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 @ApiTags('devices')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
-@Controller('devices')
+@Controller('api/devices')
 export class DevicesController {
   constructor(private readonly devicesService: DevicesService) {}
 

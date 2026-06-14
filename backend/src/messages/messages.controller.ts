@@ -41,6 +41,12 @@ export class MessagesController {
     return this.messagesService.read(req.user.userId, id);
   }
 
+  @Post('messages/:id/delivered')
+  @ApiOperation({ summary: 'Mark message as delivered' })
+  delivered(@Request() req: any, @Param('id') id: string) {
+    return this.messagesService.delivered(req.user.userId, id);
+  }
+
   @Post('messages/:id/reaction')
   @ApiOperation({ summary: 'Add a reaction' })
   react(@Request() req: any, @Param('id') id: string, @Body() dto: ReactMessageDto) {

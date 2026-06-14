@@ -30,13 +30,17 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async handleConnection(client: Socket) {
     try {
       const token = client.handshake.auth?.token || client.handshake.query?.token;
-      if (!token) throw new Error('No token');
+      if (!token) {
+        console.log(`[Socket] Connection rejected: No token for client ${client.id}`);
+        throw new Error('No token');
+      }
       
       const payload = this.jwtService.verify(token as string, { secret: process.env.JWT_SECRET || 'super_secret_jwt_key_12345' });
       client.data.user = payload;
       
       // Join a personal room for this user to receive direct updates
       client.join(`user_${payload.sub}`);
+      console.log(`[Socket] Client ${client.id} connected and joined user_${payload.sub}`);
       
       // Update presence
       await this.redisClient.set(`presence:${payload.sub}`, client.id);

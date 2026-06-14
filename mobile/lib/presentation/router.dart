@@ -43,6 +43,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           return ChatScreen(
             contact: extra['contact'],
             conversation: extra['conversation'],
+            currentUser: extra['currentUser'],
           );
         },
       ),

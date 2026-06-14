@@ -28,7 +28,7 @@ export class MessagesService {
       include: {
         media: true,
         reactions: true,
-        statuses: { where: { user_id: userId } },
+        statuses: true,
       },
       orderBy: { created_at: 'asc' },
     });
@@ -95,11 +95,55 @@ export class MessagesService {
   }
 
   async read(userId: string, messageId: string) {
-    return this.prisma.messageStatus.upsert({
+    console.log(`[MessagesService] read called for messageId=${messageId} by userId=${userId}`);
+    const status = await this.prisma.messageStatus.upsert({
       where: { message_id_user_id_status: { message_id: messageId, user_id: userId, status: 'read' } },
       update: { status_at: new Date() },
       create: { message_id: messageId, user_id: userId, status: 'read' }
     });
+
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: { conversation: true }
+    });
+
+    if (msg) {
+      console.log(`[MessagesService] Emitting read status to user_${msg.sender_id}`);
+      this.eventsGateway.server.to(`user_${msg.sender_id}`).emit('message:status', {
+        messageId: messageId,
+        conversationId: msg.conversation_id,
+        userId: userId,
+        status: 'read'
+      });
+    }
+
+    return status;
+  }
+
+  async delivered(userId: string, messageId: string) {
+    console.log(`[MessagesService] delivered called for messageId=${messageId} by userId=${userId}`);
+    const status = await this.prisma.messageStatus.upsert({
+      where: { message_id_user_id_status: { message_id: messageId, user_id: userId, status: 'delivered' } },
+      update: { status_at: new Date() },
+      create: { message_id: messageId, user_id: userId, status: 'delivered' }
+    });
+
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      include: { conversation: true }
+    });
+
+    if (msg) {
+      console.log(`[MessagesService] Emitting delivered status to user_${msg.sender_id}`);
+      this.eventsGateway.server.to(`user_${msg.sender_id}`).emit('message:status', {
+        messageId: messageId,
+        conversationId: msg.conversation_id,
+        userId: userId,
+        status: 'delivered'
+      });
+    }
+
+    return status;
   }
 
   async react(userId: string, messageId: string, dto: ReactMessageDto) {

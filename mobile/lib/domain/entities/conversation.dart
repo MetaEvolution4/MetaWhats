@@ -40,15 +40,15 @@ class Conversation {
 
     return Conversation(
       id: json['id'] ?? '',
-      isGroup: json['isGroup'] ?? false,
-      groupName: json['groupName'],
+      isGroup: json['isGroup'] ?? (json['type'] == 'group'),
+      groupName: json['groupName'] ?? json['title'],
       participants: participants,
       lastMessage: (json['messages'] != null && json['messages'].isNotEmpty)
           ? Message.fromJson(json['messages'][0])
           : (json['lastMessage'] != null ? Message.fromJson(json['lastMessage']) : null),
       unreadCount: json['unreadCount'] ?? 0,
-      updatedAt: json['updatedAt'] != null 
-          ? DateTime.parse(json['updatedAt']) 
+      updatedAt: (json['updatedAt'] != null || json['updated_at'] != null)
+          ? DateTime.parse(json['updatedAt'] ?? json['updated_at']) 
           : DateTime.now(),
     );
   }

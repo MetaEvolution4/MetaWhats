@@ -10,25 +10,38 @@ import '../../domain/entities/user.dart';
 class ChatScreen extends ConsumerStatefulWidget {
   final User? contact;
   final Conversation? conversation;
+  final User? currentUser;
 
-  const ChatScreen({super.key, this.contact, this.conversation});
+  const ChatScreen({super.key, this.contact, this.conversation, this.currentUser});
 
   @override
   ConsumerState<ChatScreen> createState() => _ChatScreenState();
 }
 
 class _ChatScreenState extends ConsumerState<ChatScreen> {
+  User? _currentUser;
   Conversation? _currentConversation;
   List<Message> _messages = [];
+  List<User> _contacts = [];
   bool _isLoading = true;
   final TextEditingController _messageController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  final FocusNode _focusNode = FocusNode();
   StreamSubscription<Message>? _messageSub;
+  StreamSubscription<Map<String, dynamic>>? _messageStatusSub;
+  Timer? _pollingTimer;
 
   @override
   void initState() {
     super.initState();
+    _currentUser = widget.currentUser;
     _initChat();
+    
+    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!_isLoading && mounted && _currentConversation != null) {
+        _pollMessages();
+      }
+    });
   }
 
   Future<void> _initChat() async {
@@ -46,12 +59,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         return;
       }
 
-      // 2. Load old messages
+      // 2. Load old messages, contacts and current user
       final messages = await chatRepo.getMessages(_currentConversation!.id);
+      
+      final uniqueMessages = <Message>[];
+      final seenIds = <String>{};
+      for (var msg in messages) {
+        if (!seenIds.contains(msg.id)) {
+          seenIds.add(msg.id);
+          uniqueMessages.add(msg);
+        }
+      }
+
+      final contactRepo = ref.read(contactRepositoryProvider);
+      final contacts = await contactRepo.getContacts();
+      final authRepo = ref.read(authRepositoryProvider);
+      final me = await authRepo.getCurrentUser();
+      
+      // Mark as read
+      for (var msg in uniqueMessages) {
+        if (msg.senderId != me?.id && msg.status != MessageStatus.read) {
+          chatRepo.markAsRead(msg.id);
+        }
+      }
       
       if (mounted) {
         setState(() {
-          _messages = messages;
+          _messages = uniqueMessages;
+          _contacts = contacts;
+          _currentUser = me;
           _isLoading = false;
         });
         _scrollToBottom();
@@ -60,12 +96,42 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       // 3. Listen to new messages via WebSocket
       _messageSub = chatRepo.onMessageReceived.listen((newMessage) {
         if (newMessage.conversationId == _currentConversation?.id) {
+          if (newMessage.senderId != _currentUser?.id) {
+            chatRepo.markAsRead(newMessage.id);
+          }
           if (mounted) {
             setState(() {
-              _messages.add(newMessage);
+              // Verifica se a mensagem já não foi adicionada manualmente no _sendMessage
+              if (!_messages.any((m) => m.id == newMessage.id)) {
+                _messages.add(newMessage);
+                _scrollToBottom();
+              }
             });
-            _scrollToBottom();
           }
+        }
+      });
+
+      // 4. Listen to message status updates
+      _messageStatusSub = chatRepo.onMessageStatus.listen((statusUpdate) {
+        final messageId = statusUpdate['messageId'];
+        final statusStr = statusUpdate['status'];
+        final userId = statusUpdate['userId'];
+
+        if (mounted && messageId != null && statusStr != null) {
+          setState(() {
+            final index = _messages.indexWhere((m) => m.id == messageId);
+            if (index != -1) {
+              final msg = _messages[index];
+              if (msg.senderId != userId) {
+                MessageStatus newStatus = msg.status;
+                if (statusStr == 'read') newStatus = MessageStatus.read;
+                if (statusStr == 'delivered' && msg.status != MessageStatus.read) newStatus = MessageStatus.delivered;
+                
+                _messages[index] = msg.copyWith(status: newStatus);
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Status atualizado: $statusStr')));
+              }
+            }
+          });
         }
       });
     } catch (e) {
@@ -76,11 +142,46 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     }
   }
 
+  Future<void> _pollMessages() async {
+    try {
+      final chatRepo = ref.read(chatRepositoryProvider);
+      final newMessages = await chatRepo.getMessages(_currentConversation!.id);
+      
+      bool hasNew = false;
+      for (var msg in newMessages) {
+        if (!_messages.any((m) => m.id == msg.id)) {
+          _messages.add(msg);
+          hasNew = true;
+          if (msg.senderId != _currentUser?.id && msg.status != MessageStatus.read) {
+            chatRepo.markAsRead(msg.id);
+          }
+        } else {
+          // Update status of existing messages
+          final index = _messages.indexWhere((m) => m.id == msg.id);
+          if (index != -1 && _messages[index].status != msg.status) {
+            _messages[index] = msg;
+            hasNew = true;
+          }
+        }
+      }
+      
+      if (hasNew && mounted) {
+        setState(() {});
+        _scrollToBottom();
+      }
+    } catch (e) {
+      // Ignore polling errors
+    }
+  }
+
   @override
   void dispose() {
     _messageController.dispose();
     _scrollController.dispose();
+    _focusNode.dispose();
     _messageSub?.cancel();
+    _messageStatusSub?.cancel();
+    _pollingTimer?.cancel();
     super.dispose();
   }
 
@@ -101,6 +202,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
     if (text.isEmpty || _currentConversation == null) return;
 
     _messageController.clear();
+    _focusNode.requestFocus();
     
     // Determine recipient public key if direct chat
     String? recipientPublicKey;
@@ -113,7 +215,9 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final sentMsg = await chatRepo.sendMessage(_currentConversation!.id, text, recipientPublicKey);
       if (mounted) {
         setState(() {
-          _messages.add(sentMsg);
+          if (!_messages.any((m) => m.id == sentMsg.id)) {
+            _messages.add(sentMsg);
+          }
         });
         _scrollToBottom();
       }
@@ -135,9 +239,15 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
         displayName = widget.conversation!.groupName ?? 'Grupo';
       } else {
         // Try to find the other participant
-        final otherUsers = widget.conversation!.participants;
+        final otherUsers = widget.conversation!.participants.where((p) => p.id != _currentUser?.id).toList();
         if (otherUsers.isNotEmpty) {
-          displayName = otherUsers.first.name ?? otherUsers.first.phone;
+          final otherUser = otherUsers.first;
+          final contact = _contacts.where((c) => c.phone == otherUser.phone).firstOrNull;
+          if (contact != null && contact.name != null && contact.name!.isNotEmpty) {
+            displayName = contact.name!;
+          } else {
+            displayName = otherUser.name ?? otherUser.phone;
+          }
         }
       }
     }
@@ -208,12 +318,37 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                       itemCount: _messages.length,
                       itemBuilder: (context, index) {
                         final msg = _messages[index];
+                        
+                        // Check if we need a date header
+                        bool showDateHeader = false;
+                        if (index == 0) {
+                          showDateHeader = true;
+                        } else {
+                          final prevMsg = _messages[index - 1];
+                          if (msg.createdAt.year != prevMsg.createdAt.year ||
+                              msg.createdAt.month != prevMsg.createdAt.month ||
+                              msg.createdAt.day != prevMsg.createdAt.day) {
+                            showDateHeader = true;
+                          }
+                        }
+
                         // We need to know if the message is from me or the other person
                         // For MVP, we assume if senderId != contact.id, it's mine.
                         // Ideally we check against our own user ID.
                         bool isMe = true;
                         if (widget.contact != null && msg.senderId == widget.contact!.id) {
                           isMe = false;
+                        } else if (_currentUser != null && msg.senderId != _currentUser!.id) {
+                          isMe = false;
+                        }
+
+                        if (showDateHeader) {
+                          return Column(
+                            children: [
+                              _buildDateHeader(msg.createdAt),
+                              _buildMessageBubble(msg, isMe),
+                            ],
+                          );
                         }
 
                         return _buildMessageBubble(msg, isMe);
@@ -224,6 +359,35 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 _buildMessageInput(),
               ],
             ),
+    );
+  }
+
+  Widget _buildDateHeader(DateTime date) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final yesterday = today.subtract(const Duration(days: 1));
+    final msgDate = DateTime(date.year, date.month, date.day);
+
+    String text;
+    if (msgDate == today) {
+      text = 'Hoje';
+    } else if (msgDate == yesterday) {
+      text = 'Ontem';
+    } else {
+      text = '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E).withOpacity(0.8),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.w500),
+      ),
     );
   }
 
@@ -273,8 +437,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                 if (isMe) ...[
                   const SizedBox(width: 4),
                   Icon(
-                    msg.status == MessageStatus.read ? Icons.done_all : Icons.check,
-                    size: 14,
+                    msg.status == MessageStatus.sent ? Icons.check : Icons.done_all,
+                    size: 15,
                     color: msg.status == MessageStatus.read ? Colors.blue : Colors.black54,
                   ),
                 ]
@@ -308,6 +472,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
                   Expanded(
                     child: TextField(
                       controller: _messageController,
+                      focusNode: _focusNode,
                       style: const TextStyle(color: Colors.white),
                       decoration: const InputDecoration(
                         hintText: 'Mensagem',

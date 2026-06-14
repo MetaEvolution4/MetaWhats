@@ -21,17 +21,14 @@ class Message {
 
   factory Message.fromJson(Map<String, dynamic> json) {
     return Message(
-      id: json['id'] ?? '',
-      conversationId: json['conversationId'] ?? '',
-      senderId: json['senderId'] ?? '',
+      id: json['id'] ?? json['message_id'] ?? '',
+      conversationId: json['conversationId'] ?? json['conversation_id'] ?? '',
+      senderId: json['senderId'] ?? json['sender_id'] ?? '',
       content: json['content'] ?? '',
       nonce: json['nonce'],
-      status: MessageStatus.values.firstWhere(
-        (e) => e.toString().split('.').last == json['status'],
-        orElse: () => MessageStatus.sent,
-      ),
-      createdAt: json['createdAt'] != null 
-          ? DateTime.parse(json['createdAt']) 
+      status: _parseStatus(json),
+      createdAt: (json['createdAt'] != null || json['created_at'] != null)
+          ? DateTime.parse(json['createdAt'] ?? json['created_at']) 
           : DateTime.now(),
     );
   }
@@ -61,6 +58,31 @@ class Message {
       nonce: this.nonce,
       status: status ?? this.status,
       createdAt: this.createdAt,
+    );
+  }
+
+  static MessageStatus _parseStatus(Map<String, dynamic> json) {
+    if (json['statuses'] != null && json['statuses'] is List) {
+      final statuses = json['statuses'] as List;
+      final senderId = json['senderId'] ?? json['sender_id'];
+      
+      bool isRead = false;
+      bool isDelivered = false;
+      
+      for (var s in statuses) {
+        if (s['user_id'] != senderId) {
+          if (s['status'] == 'read') isRead = true;
+          if (s['status'] == 'delivered') isDelivered = true;
+        }
+      }
+      
+      if (isRead) return MessageStatus.read;
+      if (isDelivered) return MessageStatus.delivered;
+    }
+    
+    return MessageStatus.values.firstWhere(
+      (e) => e.toString().split('.').last == (json['status'] ?? 'sent'),
+      orElse: () => MessageStatus.sent,
     );
   }
 }

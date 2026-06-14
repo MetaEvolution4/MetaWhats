@@ -7,6 +7,7 @@ import '../../core/providers.dart';
 import '../../domain/entities/conversation.dart';
 import '../../domain/entities/message.dart';
 import '../../domain/entities/user.dart';
+import 'package:dio/dio.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -18,32 +19,54 @@ class HomeScreen extends ConsumerStatefulWidget {
 class _HomeScreenState extends ConsumerState<HomeScreen> {
   User? _currentUser;
   List<Conversation> _conversations = [];
+  List<User> _contacts = [];
   bool _isLoading = true;
+  Timer? _pollingTimer;
 
   @override
   void initState() {
     super.initState();
     _loadData();
     _connectSocket();
+    
+    // Fallback à prova de falhas: Polling a cada 10 segundos
+    // Garante que mesmo se o WebSocket do Cloudflare cair ou o navegador suspender,
+    // os Ticks e as mensagens vão funcionar!
+    _pollingTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (!_isLoading && mounted) {
+        _loadData();
+      }
+    });
   }
 
   Future<void> _loadData() async {
     try {
       final authRepo = ref.read(authRepositoryProvider);
       final chatRepo = ref.read(chatRepositoryProvider);
+      final contactRepo = ref.read(contactRepositoryProvider);
       
       final me = await authRepo.getCurrentUser();
       final convs = await chatRepo.getConversations();
+      final contactsList = await contactRepo.getContacts();
       
       if (mounted) {
         setState(() {
           _currentUser = me;
           _conversations = convs;
+          _contacts = contactsList;
           _isLoading = false;
         });
       }
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+        if (e is DioException && e.response?.statusCode == 401) {
+          final authRepo = ref.read(authRepositoryProvider);
+          authRepo.logout().then((_) {
+            context.go('/login');
+          });
+        }
+      }
     }
   }
 
@@ -57,12 +80,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     _messageSub = chatRepo.onMessageReceived.listen((message) {
       // Reload conversations when a new message arrives
       _loadData();
+      
+      // Mark as delivered if we received it
+      if (message.senderId != _currentUser?.id) {
+        chatRepo.markAsDelivered(message.id);
+      }
     });
   }
 
   @override
   void dispose() {
     _messageSub?.cancel();
+    _pollingTimer?.cancel();
     super.dispose();
   }
 
@@ -213,7 +242,13 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   } else {
                     try {
                       final otherUser = conv.participants.firstWhere((p) => p.id != _currentUser?.id);
-                      title = otherUser.name ?? otherUser.phone;
+                      // Check if it's in contacts
+                      final contact = _contacts.where((c) => c.phone == otherUser.phone).firstOrNull;
+                      if (contact != null && contact.name != null && contact.name!.isNotEmpty) {
+                        title = contact.name!;
+                      } else {
+                        title = otherUser.name ?? otherUser.phone;
+                      }
                     } catch (e) {
                       title = 'Desconhecido';
                     }
@@ -228,7 +263,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                     child: InkWell(
                       onTap: () {
-                        context.push('/chat', extra: {'conversation': conv});
+                        context.push('/chat', extra: {
+                          'conversation': conv,
+                          'currentUser': _currentUser,
+                        });
                       },
                       borderRadius: BorderRadius.circular(16),
                       child: Container(

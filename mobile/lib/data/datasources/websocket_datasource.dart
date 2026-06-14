@@ -6,8 +6,10 @@ import '../../core/constants.dart';
 class WebSocketDatasource {
   IO.Socket? socket;
   final _messageController = StreamController<Map<String, dynamic>>.broadcast();
+  final _messageStatusController = StreamController<Map<String, dynamic>>.broadcast();
 
   Stream<Map<String, dynamic>> get onMessage => _messageController.stream;
+  Stream<Map<String, dynamic>> get onMessageStatus => _messageStatusController.stream;
 
   Future<void> connect() async {
     final prefs = await SharedPreferences.getInstance();
@@ -18,6 +20,7 @@ class WebSocketDatasource {
     socket = IO.io(AppConstants.socketUrl, IO.OptionBuilder()
       .setTransports(['websocket'])
       .disableAutoConnect()
+      .enableForceNew()
       .setAuth({'token': token})
       .build());
 
@@ -28,6 +31,11 @@ class WebSocketDatasource {
     socket!.on('message:new', (data) {
       print('💌 NEW MESSAGE RECEIVED VIA SOCKET: $data');
       _messageController.add(Map<String, dynamic>.from(data));
+    });
+
+    socket!.on('message:status', (data) {
+      print('💌 MESSAGE STATUS RECEIVED VIA SOCKET: $data');
+      _messageStatusController.add(Map<String, dynamic>.from(data));
     });
 
     socket!.onDisconnect((_) => print('❌ Socket.IO disconnected!'));

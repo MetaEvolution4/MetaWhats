@@ -32,31 +32,34 @@ class ChatRepositoryImpl implements ChatRepository {
 
   @override
   Future<List<Message>> getMessages(String conversationId) async {
-    // Tenta buscar as mensagens do banco local primeiro para ser instantâneo
     List<Message> localMessages = await localDb.getMessages(conversationId);
+    List<Message> remoteMessages = [];
     
-    // Opcional: Buscar novas mensagens na API para sincronização
     try {
       final response = await api.dio.get('/conversations/$conversationId/messages');
       final List data = response.data;
-      List<Message> remoteMessages = data.map((json) => Message.fromJson(json)).toList();
+      remoteMessages = data.map((json) => Message.fromJson(json)).toList();
       
-      // Salva ou atualiza as mensagens remotas no banco local (ignorando conflitos ou substituindo)
       for (var msg in remoteMessages) {
         await localDb.insertMessage(msg);
       }
       
-      // Busca novamente do banco local ordenado
+      // Se não temos banco local (ex: web), retornamos os remotos
+      if (localMessages.isEmpty && remoteMessages.isNotEmpty) {
+        return remoteMessages;
+      }
+
       localMessages = await localDb.getMessages(conversationId);
     } catch (e) {
       print('Erro ao sincronizar mensagens: $e');
     }
 
-    return localMessages;
+    // Retorna localMessages se tivermos banco, senao os remotos (que podem ser vazios tb)
+    return localMessages.isNotEmpty ? localMessages : remoteMessages;
   }
 
   @override
-  Future<Message> sendMessage(String conversationId, String content, String? recipientPublicKey) async {
+  Future<Message> sendMessage(String conversationId, String content, [String? recipientPublicKey]) async {
     String finalContent = content;
     String? finalNonce;
 
@@ -93,9 +96,32 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
+  Future<void> markAsRead(String messageId) async {
+    try {
+      await api.dio.post('/messages/$messageId/read');
+    } catch (e) {
+      print('Erro ao marcar como lida: $e');
+    }
+  }
+
+  @override
+  Future<void> markAsDelivered(String messageId) async {
+    try {
+      await api.dio.post('/messages/$messageId/delivered');
+    } catch (e) {
+      print('Erro ao marcar como entregue: $e');
+    }
+  }
+
+  @override
   Stream<Message> get onMessageReceived {
     return socket.onMessage.map((data) {
       return Message.fromJson(data);
     });
+  }
+
+  @override
+  Stream<Map<String, dynamic>> get onMessageStatus {
+    return socket.onMessageStatus;
   }
 }

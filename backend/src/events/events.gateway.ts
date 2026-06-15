@@ -176,29 +176,51 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   // --- WebRTC Signaling ---
   
-  @SubscribeMessage('call:offer')
-  handleCallOffer(@MessageBody() data: { targetUserId: string, conversationId: string, offer: any }, @ConnectedSocket() client: Socket) {
-    client.to(`user_${data.targetUserId}`).emit('call:offer', {
-      callerId: client.data.user.sub,
-      conversationId: data.conversationId,
-      offer: data.offer
-    });
+  @SubscribeMessage('call:start')
+  handleCallStart(@MessageBody() payload: { conversationId: string, recipientId?: string, offer: any }, @ConnectedSocket() client: Socket) {
+    if (payload.recipientId) {
+      client.to(`user_${payload.recipientId}`).emit('call:incoming', {
+        callerId: client.data.user.sub,
+        conversationId: payload.conversationId,
+        offer: payload.offer,
+      });
+    } else {
+      client.to(`conversation_${payload.conversationId}`).emit('call:incoming', {
+        callerId: client.data.user.sub,
+        conversationId: payload.conversationId,
+        offer: payload.offer,
+      });
+    }
   }
 
   @SubscribeMessage('call:answer')
-  handleCallAnswer(@MessageBody() data: { targetUserId: string, answer: any }, @ConnectedSocket() client: Socket) {
-    client.to(`user_${data.targetUserId}`).emit('call:answer', {
-      answererId: client.data.user.sub,
-      answer: data.answer
-    });
+  handleCallAnswer(@MessageBody() payload: { conversationId: string, recipientId?: string, answer: any }, @ConnectedSocket() client: Socket) {
+    if (payload.recipientId) {
+      client.to(`user_${payload.recipientId}`).emit('call:answer', {
+        conversationId: payload.conversationId,
+        answer: payload.answer,
+      });
+    } else {
+      client.to(`conversation_${payload.conversationId}`).emit('call:answer', {
+        conversationId: payload.conversationId,
+        answer: payload.answer,
+      });
+    }
   }
 
   @SubscribeMessage('call:ice-candidate')
-  handleIceCandidate(@MessageBody() data: { targetUserId: string, candidate: any }, @ConnectedSocket() client: Socket) {
-    client.to(`user_${data.targetUserId}`).emit('call:ice-candidate', {
-      senderId: client.data.user.sub,
-      candidate: data.candidate
-    });
+  handleCallIceCandidate(@MessageBody() payload: { conversationId: string, recipientId?: string, candidate: any }, @ConnectedSocket() client: Socket) {
+    if (payload.recipientId) {
+      client.to(`user_${payload.recipientId}`).emit('call:ice-candidate', {
+        conversationId: payload.conversationId,
+        candidate: payload.candidate,
+      });
+    } else {
+      client.to(`conversation_${payload.conversationId}`).emit('call:ice-candidate', {
+        conversationId: payload.conversationId,
+        candidate: payload.candidate,
+      });
+    }
   }
 
   @SubscribeMessage('call:end')

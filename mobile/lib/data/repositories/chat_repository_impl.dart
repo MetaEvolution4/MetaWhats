@@ -20,7 +20,48 @@ class ChatRepositoryImpl implements ChatRepository {
   Future<List<Conversation>> getConversations() async {
     final response = await api.dio.get('/conversations');
     final List data = response.data;
-    return data.map((json) => Conversation.fromJson(json)).toList();
+    List<Conversation> convs = data.map((json) => Conversation.fromJson(json)).toList();
+
+    // Decrypt last messages for preview
+    for (var i = 0; i < convs.length; i++) {
+      var conv = convs[i];
+      if (conv.lastMessage != null) {
+        var msg = conv.lastMessage!;
+        if (msg.ciphertext != null && msg.ciphertext!.isNotEmpty && msg.content.isEmpty) {
+          try {
+            String content = '';
+            if (conv.isGroup) {
+              final groupKeyBase64 = await localDb.getGroupKey(conv.id);
+              if (groupKeyBase64 != null) {
+                final payload = jsonDecode(msg.ciphertext!);
+                final mediaManager = MediaEncryptionManager();
+                content = await mediaManager.decryptString(payload['ct'], groupKeyBase64, payload['iv']);
+              }
+            } else {
+              content = msg.ciphertext ?? '';
+              if (msg.type == 'group_key_distribution') {
+                 content = '🔑 Group Key Received';
+              }
+            }
+            if (content.isNotEmpty) {
+              conv = Conversation(
+                id: conv.id,
+                isGroup: conv.isGroup,
+                groupName: conv.groupName,
+                participants: conv.participants,
+                lastMessage: msg.copyWith(content: content),
+                unreadCount: conv.unreadCount,
+                updatedAt: conv.updatedAt,
+              );
+              convs[i] = conv;
+            }
+          } catch (e) {
+            print('Error decrypting last message for conv ${conv.id}: $e');
+          }
+        }
+      }
+    }
+    return convs;
   }
 
   @override

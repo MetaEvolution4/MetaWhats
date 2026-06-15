@@ -42,13 +42,13 @@ class WebRTCManager {
 
     _socket!.onCallAnswer.listen((data) {
       if (data['answer'] != null) {
-        handleAnswer(data['answer']);
+        handleAnswer(data['answer'] is Map ? Map<String, dynamic>.from(data['answer']) : {});
       }
     });
 
     _socket!.onCallIceCandidate.listen((data) {
       if (data['candidate'] != null) {
-        handleIceCandidate(data['candidate']);
+        handleIceCandidate(data['candidate'] is Map ? Map<String, dynamic>.from(data['candidate']) : {});
       }
     });
 

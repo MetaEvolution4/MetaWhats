@@ -111,9 +111,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           context: context,
           barrierDismissible: false,
           builder: (_) => IncomingCallDialog(
-            callerId: data['callerId'],
-            conversationId: data['conversationId'],
-            offer: data['offer'],
+            callerId: data['callerId']?.toString() ?? 'Desconhecido',
+            conversationId: data['conversationId']?.toString() ?? '',
+            offer: data['offer'] is Map ? Map<String, dynamic>.from(data['offer']) : {},
           ),
         );
       }

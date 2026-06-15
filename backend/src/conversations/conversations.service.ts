@@ -81,7 +81,8 @@ export class ConversationsService {
         },
         messages: {
           orderBy: { created_at: 'desc' },
-          take: 1
+          take: 1,
+          include: { statuses: true }
         }
       },
       orderBy: { updated_at: 'desc' }

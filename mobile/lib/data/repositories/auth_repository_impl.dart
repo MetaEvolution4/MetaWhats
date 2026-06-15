@@ -52,7 +52,7 @@ class AuthRepositoryImpl implements AuthRepository {
     };
 
     // Register device and bundle on the backend
-    await api.dio.post('${AppConstants.baseUrl}/devices/register', data: bundle);
+    await api.dio.post('/devices/register', data: bundle);
     
     return token;
   }

@@ -68,45 +68,56 @@ class ChatRepositoryImpl implements ChatRepository {
   Future<List<Message>> getMessages(String conversationId) async {
     List<Message> localMessages = await localDb.getMessages(conversationId);
     List<Message> remoteMessages = [];
-    
+
     try {
       final response = await api.dio.get('/conversations/$conversationId/messages');
       final List data = response.data;
       remoteMessages = data.map((json) => Message.fromJson(json)).toList();
-      
-      for (var msg in remoteMessages) {
-        if (msg.ciphertext != null && msg.ciphertext!.isNotEmpty && msg.content.isEmpty) {
-          try {
-            if (msg.cipherType == 4) {
-              // Decrypt Group Message
-              final groupKey = await localDb.getGroupKey(msg.conversationId);
-              if (groupKey != null) {
-                final payload = jsonDecode(msg.ciphertext!);
-                final mediaManager = MediaEncryptionManager();
-                final plainText = await mediaManager.decryptString(payload['ct'], groupKey, payload['iv']);
-                msg = msg.copyWith(content: plainText);
+
+      for (int i = 0; i < remoteMessages.length; i++) {
+        var msg = remoteMessages[i];
+        if (!localMessages.any((m) => m.id == msg.id)) {
+          // Decrypt if needed
+          if (msg.ciphertext != null && msg.ciphertext!.isNotEmpty && msg.content.isEmpty) {
+            try {
+              if (msg.cipherType == 4) {
+                // Decrypt Group Message
+                final groupKey = await localDb.getGroupKey(msg.conversationId);
+                if (groupKey != null) {
+                  final payload = jsonDecode(msg.ciphertext!);
+                  final mediaManager = MediaEncryptionManager();
+                  final plainText = await mediaManager.decryptString(payload['ct'], groupKey, payload['iv']);
+                  msg = msg.copyWith(content: plainText);
+                } else {
+                  msg = msg.copyWith(content: '🔒 Waiting for Group Key');
+                }
               } else {
-                msg = msg.copyWith(content: '🔒 Waiting for Group Key');
+                // Decrypt 1:1 Message (Signal)
+                final plainText = msg.ciphertext ?? '';
+                
+                if (msg.type == 'group_key_distribution') {
+                  // Save the group key
+                  final payload = jsonDecode(plainText);
+                  await localDb.saveGroupKey(payload['groupId'], payload['groupKey']);
+                  msg = msg.copyWith(content: '🔑 Group Key Received', type: 'system');
+                } else {
+                  msg = msg.copyWith(content: plainText);
+                }
               }
-            } else {
-              // Decrypt 1:1 Message (Signal)
-              final plainText = msg.ciphertext ?? '';
-              
-              if (msg.type == 'group_key_distribution') {
-                // Save the group key
-                final payload = jsonDecode(plainText);
-                await localDb.saveGroupKey(payload['groupId'], payload['groupKey']);
-                msg = msg.copyWith(content: '🔑 Group Key Received', type: 'system');
-              } else {
-                msg = msg.copyWith(content: plainText);
-              }
+            } catch (e) {
+              print('Error decrypting message on sync: $e');
+              msg = msg.copyWith(content: '🔒 Mensagem Criptografada');
             }
+          }
+          
+          remoteMessages[i] = msg; // Update the list with the decrypted message
+          
+          try {
+            await localDb.insertMessage(msg);
           } catch (e) {
-            print('Error decrypting message on sync: $e');
-            msg = msg.copyWith(content: '🔒 Mensagem Criptografada');
+            // Ignore insert errors on Web
           }
         }
-        await localDb.insertMessage(msg);
       }
       
       // Se não temos banco local (ex: web), retornamos os remotos decifrados
@@ -119,7 +130,7 @@ class ChatRepositoryImpl implements ChatRepository {
       print('Erro ao sincronizar mensagens: $e');
     }
 
-    // Retorna localMessages se tivermos banco, senao os remotos (que podem ser vazios tb)
+    // Retorna localMessages se tivermos banco, senao os remotos decifrados
     return localMessages.isNotEmpty ? localMessages : remoteMessages;
   }
 
@@ -169,7 +180,11 @@ class ChatRepositoryImpl implements ChatRepository {
     
     // Salva localmente a mensagem DECIFRADA para o remetente não perder o histórico
     final localCopy = sentMessage.copyWith(content: content, type: messageType);
-    await localDb.insertMessage(localCopy);
+    try {
+      await localDb.insertMessage(localCopy);
+    } catch (e) {
+      // Ignora erro no web
+    }
 
     return localCopy;
   }

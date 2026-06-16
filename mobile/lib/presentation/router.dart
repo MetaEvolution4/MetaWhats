@@ -58,9 +58,10 @@ final routerProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final extra = state.extra as Map<String, dynamic>? ?? {};
           return CallScreen(
-            targetUserId: extra['targetUserId'],
-            conversationId: extra['conversationId'],
+            targetUserId: extra['targetUserId'] ?? '',
+            conversationId: extra['conversationId'] ?? '',
             incomingOffer: extra['offer'],
+            isVideo: extra['isVideo'] == true,
           );
         },
       ),

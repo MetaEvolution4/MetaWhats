@@ -1,16 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/webrtc/webrtc_manager.dart';
 
 class IncomingCallDialog extends StatelessWidget {
   final String callerId;
+  final String callerName;
   final String conversationId;
   final Map<String, dynamic> offer;
+  final bool isVideo;
 
   const IncomingCallDialog({
     super.key,
     required this.callerId,
+    required this.callerName,
     required this.conversationId,
     required this.offer,
+    this.isVideo = false,
   });
 
   @override
@@ -29,13 +34,13 @@ class IncomingCallDialog extends StatelessWidget {
               child: Icon(Icons.person, size: 40, color: Colors.white54),
             ),
             const SizedBox(height: 16),
-            const Text(
-              'Chamada de Áudio',
-              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+            Text(
+              isVideo ? 'Chamada de Vídeo' : 'Chamada de Áudio',
+              style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
-              'Contato $callerId',
+              callerName,
               style: const TextStyle(color: Colors.grey, fontSize: 14),
               textAlign: TextAlign.center,
             ),
@@ -46,6 +51,7 @@ class IncomingCallDialog extends StatelessWidget {
                 GestureDetector(
                   onTap: () {
                     // Reject
+                    WebRTCManager().rejectCall(callerId);
                     context.pop();
                   },
                   child: Container(
@@ -65,6 +71,7 @@ class IncomingCallDialog extends StatelessWidget {
                       'targetUserId': callerId,
                       'conversationId': conversationId,
                       'offer': offer,
+                      'isVideo': isVideo,
                     });
                   },
                   child: Container(

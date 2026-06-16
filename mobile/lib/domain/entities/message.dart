@@ -10,6 +10,8 @@ class Message {
   final String? type;
   final String? nonce;
   final String? replyToMessageId;
+  final String? mediaId;
+  final Map<String, dynamic>? mediaPayload;
   final MessageStatus status;
   final DateTime createdAt;
 
@@ -23,6 +25,8 @@ class Message {
     this.type = 'text',
     this.nonce,
     this.replyToMessageId,
+    this.mediaId,
+    this.mediaPayload,
     this.status = MessageStatus.sent,
     required this.createdAt,
   });
@@ -38,6 +42,8 @@ class Message {
       type: json['type'] ?? 'text',
       nonce: json['nonce'],
       replyToMessageId: json['replyToMessageId'] ?? json['reply_to_message_id'],
+      mediaId: json['mediaId'] ?? json['media_id'],
+      mediaPayload: json['media'] as Map<String, dynamic>?,
       status: _parseStatus(json),
       createdAt: (json['createdAt'] != null || json['created_at'] != null)
           ? DateTime.parse(json['createdAt'] ?? json['created_at']) 
@@ -56,6 +62,8 @@ class Message {
       'type': type,
       'nonce': nonce,
       'reply_to_message_id': replyToMessageId,
+      'media_id': mediaId,
+      'media': mediaPayload,
       'status': status.toString().split('.').last,
       'created_at': createdAt.toIso8601String(),
     };

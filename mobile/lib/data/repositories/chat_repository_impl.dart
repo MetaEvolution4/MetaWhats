@@ -176,8 +176,8 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
-  Future<Message> sendMessage(String conversationId, String content, [String? recipientUserId, String messageType = 'text', String? replyToMessageId]) async {
-    String? finalCiphertext;
+  Future<Message> sendMessage(String conversationId, String content, [String? recipientUserId, String messageType = 'text', String? replyToMessageId, String? mediaId]) async {
+    String finalCiphertext = '';
     int cipherType = 3;
 
     if (recipientUserId != null) {
@@ -209,6 +209,7 @@ class ChatRepositoryImpl implements ChatRepository {
       'cipher_type': cipherType,
       'type': messageType,
       'replyToMessageId': replyToMessageId,
+      'mediaId': mediaId,
     };
 
     socket.sendMessage(messagePayload);
@@ -231,24 +232,16 @@ class ChatRepositoryImpl implements ChatRepository {
   }
 
   @override
-  Future<Message> sendMediaMessage(String conversationId, String filePath, String type, [String? recipientUserId, String? replyToMessageId]) async {
-    // 1. Criptografar o arquivo localmente
-    final file = File(filePath);
-    final mediaManager = MediaEncryptionManager();
-    final encryptedData = await mediaManager.encryptFile(file);
+  Future<Message> sendMediaMessage(String conversationId, XFile file, String type, [String? recipientUserId, String? replyToMessageId]) async {
+    // Para o Passo 2: Upload direto sem criptografia E2EE (A ser adicionado no Passo 4)
+    final bytes = await file.readAsBytes();
+    final fileName = file.name;
     
-    // 2. Fazer upload do binário criptografado
-    final mediaId = await api.uploadMedia(encryptedData['encryptedBytes'], file.uri.pathSegments.last);
+    // 1. Fazer upload do binário
+    final mediaId = await api.uploadMedia(bytes, fileName);
 
-    // 3. Montar o payload decifrado (a ser embutido na msg Signal)
-    final innerPayload = jsonEncode({
-      'mediaId': mediaId,
-      'keyBase64': encryptedData['keyBase64'],
-      'ivBase64': encryptedData['ivBase64'],
-    });
-
-    // 4. Enviar usando o fluxo normal do Signal E2EE
-    return await sendMessage(conversationId, innerPayload, recipientUserId, type, replyToMessageId);
+    // 2. Enviar mensagem avisando o backend do mediaId
+    return await sendMessage(conversationId, 'Arquivo de Mídia', recipientUserId, type, replyToMessageId, mediaId);
   }
   Future<void> markAsRead(String messageId) async {
     try {

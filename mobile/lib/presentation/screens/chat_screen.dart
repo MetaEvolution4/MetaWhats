@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
+import '../../core/constants.dart';
 import '../../core/providers.dart';
 import '../../domain/entities/conversation.dart';
 import '../../domain/entities/message.dart';
@@ -323,7 +324,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
       final chatRepo = ref.read(chatRepositoryProvider);
       final sentMsg = await chatRepo.sendMediaMessage(
         _currentConversation!.id,
-        pickedFile.path,
+        pickedFile,
         'image',
         recipientUserId,
       );
@@ -463,7 +464,40 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
           ],
         ),
         actions: [
-          IconButton(icon: const Icon(Icons.videocam, color: Colors.white), onPressed: () {}),
+          IconButton(
+            icon: const Icon(Icons.videocam, color: Colors.white), 
+            onPressed: () {
+              if (_currentConversation != null && !_currentConversation!.isGroup) {
+                try {
+                  String? targetUserId;
+                  if (widget.contact != null) {
+                    targetUserId = widget.contact!.id;
+                  } else {
+                    final otherUsers = _currentConversation!.participants.where((p) => p.id != _currentUser?.id).toList();
+                    if (otherUsers.isNotEmpty) {
+                      targetUserId = otherUsers.first.id;
+                    } else if (_currentConversation!.participants.isNotEmpty) {
+                      targetUserId = _currentConversation!.participants.first.id;
+                    }
+                  }
+                  
+                  if (targetUserId != null) {
+                    context.push('/call', extra: {
+                      'targetUserId': targetUserId,
+                      'conversationId': _currentConversation!.id,
+                      'isVideo': true,
+                    });
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Usuário alvo não encontrado')));
+                  }
+                } catch (e) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Erro ao ligar: $e')));
+                }
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Não é possível ligar em grupo ainda')));
+              }
+            }
+          ),
           IconButton(
             icon: const Icon(Icons.call, color: Colors.white), 
             onPressed: () {
@@ -654,7 +688,7 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
               _AudioMessageBubble(message: msg, isMe: isMe)
             else
               Text(
-                msg.content,
+                msg.content.isEmpty ? (msg.ciphertext ?? 'VAZIO') : msg.content,
                 style: TextStyle(
                   color: isMe ? Colors.black87 : Colors.white,
                   fontSize: 16,
@@ -811,52 +845,13 @@ class _ChatScreenState extends ConsumerState<ChatScreen> {
   }
 }
 
-class _MediaMessageBubble extends ConsumerStatefulWidget {
+class _MediaMessageBubble extends StatelessWidget {
   final Message message;
   const _MediaMessageBubble({required this.message});
 
   @override
-  ConsumerState<_MediaMessageBubble> createState() => _MediaMessageBubbleState();
-}
-
-class _MediaMessageBubbleState extends ConsumerState<_MediaMessageBubble> {
-  Uint8List? _imageBytes;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadMedia();
-  }
-
-  Future<void> _loadMedia() async {
-    try {
-      final chatRepo = ref.read(chatRepositoryProvider);
-      final bytes = await chatRepo.downloadAndDecryptMedia(widget.message.content);
-      if (mounted) {
-        setState(() {
-          _imageBytes = Uint8List.fromList(bytes);
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const SizedBox(
-        width: 150,
-        height: 150,
-        child: Center(child: CircularProgressIndicator(color: Color(0xFF00E676))),
-      );
-    }
-
-    if (_imageBytes == null) {
+    if (message.mediaPayload == null || message.mediaPayload!['public_url'] == null) {
       return const SizedBox(
         width: 150,
         height: 150,
@@ -864,12 +859,29 @@ class _MediaMessageBubbleState extends ConsumerState<_MediaMessageBubble> {
       );
     }
 
+    final publicUrl = message.mediaPayload!['public_url'];
+    // For Web/Mobile, we can use simple Image.network with the API base URL
+    final imageUrl = '${AppConstants.baseUrl}$publicUrl';
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(12),
-      child: Image.memory(
-        _imageBytes!,
+      child: Image.network(
+        imageUrl,
         width: 250,
         fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return const SizedBox(
+            width: 150,
+            height: 150,
+            child: Center(child: CircularProgressIndicator(color: Color(0xFF00E676))),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) => const SizedBox(
+          width: 150,
+          height: 150,
+          child: Center(child: Icon(Icons.broken_image, color: Colors.grey)),
+        ),
       ),
     );
   }

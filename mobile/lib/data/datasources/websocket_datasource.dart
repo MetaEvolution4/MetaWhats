@@ -57,7 +57,7 @@ class WebSocketDatasource {
     socket!.on('typing:start', (data) => _typingController.add(Map<String, dynamic>.from(data)..[ 'isTyping' ] = true));
     socket!.on('typing:stop', (data) => _typingController.add(Map<String, dynamic>.from(data)..[ 'isTyping' ] = false));
 
-    socket!.on('call:offer', (data) => _callOfferController.add(Map<String, dynamic>.from(data)));
+    socket!.on('call:incoming', (data) => _callOfferController.add(Map<String, dynamic>.from(data)));
     socket!.on('call:answer', (data) => _callAnswerController.add(Map<String, dynamic>.from(data)));
     socket!.on('call:ice-candidate', (data) => _callIceCandidateController.add(Map<String, dynamic>.from(data)));
     socket!.on('call:end', (data) => _callEndController.add(Map<String, dynamic>.from(data)));

@@ -24,6 +24,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   List<User> _contacts = [];
   bool _isLoading = true;
   Timer? _pollingTimer;
+  StreamSubscription<Message>? _messageSub;
+  StreamSubscription<Map<String, dynamic>>? _callSub;
+  StreamSubscription<dynamic>? _callEndSub;
+  StreamSubscription<dynamic>? _callRejectSub;
+  bool _isCallDialogOpen = false;
 
   @override
   void initState() {
@@ -83,9 +88,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
   } // Fechamento de _loadData
 
-  StreamSubscription<Message>? _messageSub;
-  StreamSubscription<Map<String, dynamic>>? _callSub;
-
   void _connectSocket() {
     final socketDs = ref.read(webSocketDatasourceProvider);
     socketDs.connect();
@@ -107,15 +109,50 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     _callSub = socketDs.onCallOffer.listen((data) {
       if (mounted) {
+        final callerId = data['callerId']?.toString() ?? 'Desconhecido';
+        
+        // Find caller info in contacts or conversations
+        String callerName = 'Contato Desconhecido';
+        try {
+          final contact = _contacts.firstWhere((c) => c.id == callerId);
+          callerName = contact.name ?? contact.phone;
+        } catch (e) {
+          try {
+            final conv = _conversations.firstWhere((c) => c.participants.any((p) => p.id == callerId));
+            final p = conv.participants.firstWhere((p) => p.id == callerId);
+            callerName = p.name ?? p.phone;
+          } catch(e) {
+            callerName = 'Desconhecido ($callerId)';
+          }
+        }
+
+        _isCallDialogOpen = true;
         showDialog(
           context: context,
           barrierDismissible: false,
           builder: (_) => IncomingCallDialog(
-            callerId: data['callerId']?.toString() ?? 'Desconhecido',
+            callerId: callerId,
+            callerName: callerName,
             conversationId: data['conversationId']?.toString() ?? '',
             offer: data['offer'] is Map ? Map<String, dynamic>.from(data['offer']) : {},
+            isVideo: data['isVideo'] == true || (data['offer'] is Map && data['offer']['isVideo'] == true),
           ),
-        );
+        ).then((_) {
+          _isCallDialogOpen = false;
+        });
+      }
+    });
+    _callEndSub = socketDs.onCallEnd.listen((_) {
+      if (_isCallDialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        _isCallDialogOpen = false;
+      }
+    });
+
+    _callRejectSub = socketDs.onCallReject.listen((_) {
+      if (_isCallDialogOpen && mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+        _isCallDialogOpen = false;
       }
     });
   }
@@ -124,6 +161,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   void dispose() {
     _messageSub?.cancel();
     _callSub?.cancel();
+    _callEndSub?.cancel();
+    _callRejectSub?.cancel();
     _pollingTimer?.cancel();
     super.dispose();
   }

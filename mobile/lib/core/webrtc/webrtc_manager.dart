@@ -55,30 +55,38 @@ class WebRTCManager {
     _socket!.onCallEnd.listen((_) {
       handleRemoteEndCall();
     });
+
+    _socket!.onCallReject.listen((_) {
+      handleRemoteEndCall();
+    });
   }
 
-  Future<void> startCall(String targetUserId, String conversationId) async {
+  Future<void> startCall(String targetUserId, String conversationId, {bool isVideo = false}) async {
     _targetUserId = targetUserId;
     _conversationId = conversationId;
     
-    await _initLocalStream();
+    await _initLocalStream(isVideo: isVideo);
     await _createPeerConnection();
     
     RTCSessionDescription offer = await _peerConnection!.createOffer();
     await _peerConnection!.setLocalDescription(offer);
     
-    _socket?.socket?.emit('call:offer', {
-      'targetUserId': targetUserId,
+    Map<String, dynamic> offerMap = Map<String, dynamic>.from(offer.toMap());
+    offerMap['isVideo'] = isVideo; // Injecting inside offer to bypass backend dropping fields
+
+    _socket?.socket?.emit('call:start', {
+      'recipientId': targetUserId,
       'conversationId': conversationId,
-      'offer': offer.toMap(),
+      'isVideo': isVideo,
+      'offer': offerMap,
     });
   }
 
-  Future<void> handleOffer(String callerId, String conversationId, Map<String, dynamic> offerMap) async {
+  Future<void> handleOffer(String callerId, String conversationId, Map<String, dynamic> offerMap, {bool isVideo = false}) async {
     _targetUserId = callerId;
     _conversationId = conversationId;
 
-    await _initLocalStream();
+    await _initLocalStream(isVideo: isVideo);
     await _createPeerConnection();
 
     await _peerConnection!.setRemoteDescription(RTCSessionDescription(offerMap['sdp'], offerMap['type']));
@@ -87,7 +95,8 @@ class WebRTCManager {
     await _peerConnection!.setLocalDescription(answer);
 
     _socket?.socket?.emit('call:answer', {
-      'targetUserId': callerId,
+      'recipientId': callerId,
+      'conversationId': _conversationId,
       'answer': answer.toMap(),
     });
   }
@@ -116,20 +125,32 @@ class WebRTCManager {
     }
     _cleanup();
   }
+
+  void rejectCall(String targetUserId) {
+    _socket?.socket?.emit('call:reject', {
+      'targetUserId': targetUserId,
+    });
+    _cleanup();
+  }
   
   void handleRemoteEndCall() {
     _cleanup();
   }
 
-  Future<void> _initLocalStream() async {
+  Future<void> _initLocalStream({bool isVideo = false}) async {
     final Map<String, dynamic> mediaConstraints = {
       'audio': true,
-      'video': false, // Audio only phase 4
+      'video': isVideo,
     };
 
-    _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
-    if (onLocalStream != null) {
-      onLocalStream!(_localStream!);
+    try {
+      _localStream = await navigator.mediaDevices.getUserMedia(mediaConstraints);
+      if (onLocalStream != null) {
+        onLocalStream!(_localStream!);
+      }
+    } catch (e) {
+      print('Erro getUserMedia: $e');
+      // Continue sem áudio se falhar para não travar o app
     }
   }
 
@@ -139,7 +160,8 @@ class WebRTCManager {
     _peerConnection!.onIceCandidate = (RTCIceCandidate candidate) {
       if (_targetUserId != null) {
         _socket?.socket?.emit('call:ice-candidate', {
-          'targetUserId': _targetUserId,
+          'recipientId': _targetUserId,
+          'conversationId': _conversationId,
           'candidate': candidate.toMap(),
         });
       }

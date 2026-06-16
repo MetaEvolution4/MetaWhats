@@ -102,8 +102,9 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
           ciphertext: data.ciphertext || '',
           cipher_type: data.cipher_type || 3,
           nonce: data.nonce,
+          media_id: data.mediaId,
         },
-        include: { sender: { select: { id: true, name: true, phone: true } } }
+        include: { sender: { select: { id: true, name: true, phone: true } }, media: true }
       });
 
       // Emit to sender
@@ -177,18 +178,20 @@ export class EventsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // --- WebRTC Signaling ---
   
   @SubscribeMessage('call:start')
-  handleCallStart(@MessageBody() payload: { conversationId: string, recipientId?: string, offer: any }, @ConnectedSocket() client: Socket) {
+  handleCallStart(@MessageBody() payload: { conversationId: string, recipientId?: string, offer: any, isVideo?: boolean }, @ConnectedSocket() client: Socket) {
     if (payload.recipientId) {
       client.to(`user_${payload.recipientId}`).emit('call:incoming', {
         callerId: client.data.user.sub,
         conversationId: payload.conversationId,
         offer: payload.offer,
+        isVideo: payload.isVideo,
       });
     } else {
       client.to(`conversation_${payload.conversationId}`).emit('call:incoming', {
         callerId: client.data.user.sub,
         conversationId: payload.conversationId,
         offer: payload.offer,
+        isVideo: payload.isVideo,
       });
     }
   }
